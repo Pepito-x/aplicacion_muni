@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'tecnico_home.dart'; // 👈 IMPORTANTE: Importa tu home de técnico
+import 'tecnico_home.dart'; 
+// 👇 IMPORTA TU PANTALLA DE CHAT AQUÍ (Ajusta la ruta según tus carpetas)
+import 'direct_chat_screen.dart'; 
 
 class IncidenciasAsignadasScreen extends StatelessWidget {
   const IncidenciasAsignadasScreen({super.key});
 
-  // 🟢 Color corporativo
   static const Color verdeBandera = Color(0xFF006400);
 
-  // 🔄 Función para regresar al Home limpiando el historial
   void _irAlHome(BuildContext context) {
     Navigator.pushAndRemoveUntil(
       context,
@@ -18,7 +18,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
     );
   }
 
-  /// 🔹 Obtener el nombre del técnico logueado
   Future<String?> obtenerNombreTecnico() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return null;
@@ -33,7 +32,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
     return snapshot.docs.first['nombre'];
   }
 
-  /// 🔹 Obtener las áreas actuales del técnico
   Future<List<String>> obtenerAreasAsignadas(String nombreTecnico) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('areas')
@@ -48,12 +46,45 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
     return snapshot.docs.map((doc) => doc['nombre'].toString()).toList();
   }
 
-  /// 🔹 Cambiar estado a resuelto
   Future<void> marcarComoResuelta(String id) async {
     await FirebaseFirestore.instance
         .collection('incidencias')
         .doc(id)
         .update({'estado': 'Resuelto'});
+  }
+
+  // 🔹 NUEVO: Función para ir al chat
+  void _irAlChat(BuildContext context, Map<String, dynamic> dataIncidencia, String miNombreTecnico) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    final otroUid = dataIncidencia['usuario_reportante_id'];
+    final otroNombre = dataIncidencia['usuario_reportante_nombre'] ?? 'Usuario';
+    
+    if (otroUid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error: No se encontró el ID del usuario reportante")),
+      );
+      return;
+    }
+
+    // Generar ID único ordenando los UIDs (para que siempre sea el mismo chat entre A y B)
+    final uids = [currentUser.uid, otroUid];
+    uids.sort(); 
+    final chatId = 'chat_1v1_${uids[0]}_${uids[1]}';
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DirectChatScreen(
+          chatId: chatId,
+          otroNombre: otroNombre,
+          otroRol: 'Usuario', // Sabemos que quien reporta es usuario (o ajusta según lógica)
+          rol: 'Tecnico',     // Yo soy el técnico
+          nombre: miNombreTecnico,
+        ),
+      ),
+    );
   }
 
   String formatearFecha(Timestamp fecha) {
@@ -72,7 +103,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Control del botón físico de atrás
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) {
@@ -87,7 +117,7 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-            onPressed: () => _irAlHome(context), // 2. Botón atrás AppBar
+            onPressed: () => _irAlHome(context),
           ),
           title: const Text(
             'Mis Incidencias',
@@ -119,9 +149,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                 }
 
                 final areas = areasSnapshot.data ?? [];
-
-                // Aunque no tenga áreas, podría tener asignaciones directas, 
-                // pero si la lógica de negocio exige áreas, mantenemos este check:
                 if (areas.isEmpty) {
                   return _mensajeVacio('No tienes áreas asignadas actualmente.');
                 }
@@ -145,7 +172,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                       return _mensajeVacio('¡Todo limpio! No tienes incidencias pendientes.');
                     }
 
-                    // Filtrado en cliente por área (según tu lógica original)
                     final incidenciasFiltradas = snapshot.data!.docs.where((doc) {
                       final data = doc.data() as Map<String, dynamic>;
                       final area = data['area'] ?? '';
@@ -156,7 +182,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                       return _mensajeVacio('No hay incidencias activas en tus áreas.');
                     }
 
-                    // Agrupar por área
                     final Map<String, List<QueryDocumentSnapshot>> incidenciasPorArea = {};
                     for (var doc in incidenciasFiltradas) {
                       final data = doc.data() as Map<String, dynamic>;
@@ -173,7 +198,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // 🏷️ Cabecera del Área
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               child: Row(
@@ -200,10 +224,10 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                               ),
                             ),
                             
-                            // 📄 Lista de tarjetas
                             ...incidencias.map((doc) {
                               final data = doc.data() as Map<String, dynamic>;
-                              return _construirTarjetaIncidencia(context, doc.id, data);
+                              // 👇 PASAMOS EL NOMBRE DEL TECNICO AQUI
+                              return _construirTarjetaIncidencia(context, doc.id, data, nombreTecnico);
                             }),
                           ],
                         );
@@ -219,8 +243,8 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
     );
   }
 
-  // ⭐ Widget de Tarjeta Mejorada
-  Widget _construirTarjetaIncidencia(BuildContext context, String id, Map<String, dynamic> data) {
+  // 👇 RECIBE nombreTecnico
+  Widget _construirTarjetaIncidencia(BuildContext context, String id, Map<String, dynamic> data, String nombreTecnico) {
     final equipo = data['nombre_equipo'] ?? 'Equipo desconocido';
     final descripcion = data['descripcion'] ?? 'Sin descripción';
     final estado = data['estado'] ?? 'Pendiente';
@@ -229,7 +253,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
         : 'Sin fecha';
     final colorEstado = colorPorEstado(estado);
 
-    // Imagen
     String? urlImagen;
     final imagenesList = data['imagenes'];
     if (imagenesList is List && imagenesList.isNotEmpty && imagenesList[0] is String) {
@@ -253,13 +276,13 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _mostrarDetalleBottomSheet(context, id, data, urlImagen),
+          // 👇 PASAMOS EL NOMBRE DEL TECNICO AL BOTTOM SHEET
+          onTap: () => _mostrarDetalleBottomSheet(context, id, data, urlImagen, nombreTecnico),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 🖼️ Miniatura de imagen
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
@@ -271,8 +294,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                
-                // 📝 Info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -301,12 +322,10 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Fecha pequeña
                           Text(
-                            fecha.split(' ')[0], // Solo fecha, sin hora para ahorrar espacio
+                            fecha.split(' ')[0], 
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
                           ),
-                          // Chip de estado
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
@@ -336,10 +355,11 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
     );
   }
 
-  // ⭐ Panel Inferior (BottomSheet) Moderno
-  void _mostrarDetalleBottomSheet(BuildContext context, String id, Map<String, dynamic> data, String? urlImagen) {
+  // 👇 RECIBE nombreTecnico
+  void _mostrarDetalleBottomSheet(BuildContext context, String id, Map<String, dynamic> data, String? urlImagen, String nombreTecnico) {
     final estado = data['estado'] ?? 'Desconocido';
     final esResuelto = estado.toString().toLowerCase() == 'resuelto';
+    final nombreUsuario = data['usuario_reportante_nombre'] ?? 'Usuario';
 
     showModalBottomSheet(
       context: context,
@@ -350,9 +370,9 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
       ),
       builder: (context) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.65,
+          initialChildSize: 0.70, // Un poco más alto para que quepa el botón nuevo
           minChildSize: 0.4,
-          maxChildSize: 0.9,
+          maxChildSize: 0.95,
           expand: false,
           builder: (_, controller) {
             return SingleChildScrollView(
@@ -361,7 +381,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ➖ Barra de arrastre
                   Center(
                     child: Container(
                       width: 40, height: 5,
@@ -373,7 +392,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                     ),
                   ),
 
-                  // 🖼️ Imagen Grande
                   if (urlImagen != null && urlImagen.isNotEmpty)
                     Container(
                       height: 200,
@@ -388,7 +406,6 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                       ),
                     ),
 
-                  // 🏷️ Título
                   Text(
                     data['nombre_equipo'] ?? 'Equipo',
                     style: const TextStyle(
@@ -400,6 +417,7 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
                   const SizedBox(height: 15),
 
                   _infoFila(Icons.description, "Descripción", data['descripcion']),
+                  _infoFila(Icons.person, "Usuario Reportante", nombreUsuario), // Mostramos quién reportó
                   _infoFila(Icons.business, "Área", data['area']),
                   _infoFila(Icons.calendar_today, "Fecha Reporte", 
                       data['fecha_reporte'] != null 
@@ -427,7 +445,39 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
 
                   const SizedBox(height: 30),
 
-                  // 🔘 Botón de Acción
+                  // 🔵 BOTÓN DE CHAT (NUEVO)
+                  if (!esResuelto) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context); // Cierra el detalle para ir al chat limpio
+                          _irAlChat(context, data, nombreTecnico);
+                        },
+                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.blueAccent),
+                        label: Text(
+                          "CONTACTAR CON $nombreUsuario".toUpperCase(),
+                          style: const TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blueAccent,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade50,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: const BorderSide(color: Colors.blueAccent)
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // 🟢 BOTÓN DE RESOLVER
                   if (!esResuelto)
                     SizedBox(
                       width: double.infinity,
