@@ -1,5 +1,3 @@
-// registrar_incidencia_screen.dart
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,11 +12,7 @@ const String uploadPreset = 'municipal_unsigned';
 
 class RegistrarIncidenciaScreen extends StatefulWidget {
   final Map<String, dynamic> equipoData;
-
-  const RegistrarIncidenciaScreen({
-    super.key,
-    required this.equipoData,
-  });
+  const RegistrarIncidenciaScreen({super.key, required this.equipoData});
 
   @override
   State<RegistrarIncidenciaScreen> createState() => _RegistrarIncidenciaScreenState();
@@ -44,10 +38,8 @@ class _RegistrarIncidenciaScreenState extends State<RegistrarIncidenciaScreen> {
       final request = http.MultipartRequest('POST', url)
         ..fields['upload_preset'] = uploadPreset
         ..files.add(await http.MultipartFile.fromPath('file', imagen.path));
-
       final response = await request.send();
       final resBody = await response.stream.bytesToString();
-
       if (response.statusCode == 200) {
         final data = json.decode(resBody);
         return data['secure_url'] as String?;
@@ -109,160 +101,155 @@ class _RegistrarIncidenciaScreenState extends State<RegistrarIncidenciaScreen> {
     });
   }
 
-// 📝 Registrar incidencia en Firestore + notificar al jefe
-// 📝 Registrar incidencia en Firestore + notificar al jefe
-Future<void> registrarIncidencia() async {
-  // 🕒 Log breve (solo en debug)
-  print("🚀 Registrando incidencia...");
+  // 📝 Registrar incidencia en Firestore + notificar al jefe
+  Future<void> registrarIncidencia() async {
+    // 🕒 Log breve (solo en debug)
+    print("🚀 Registrando incidencia...");
 
-  // 🔒 Verificar contexto
-  if (!mounted) return;
-
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('❌ Sesión expirada')),
-      );
-      Navigator.maybePop(context);
+    // 🔒 Verificar contexto
+    if (!mounted) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Sesión expirada')),
+        );
+        Navigator.maybePop(context);
+      }
+      return;
     }
-    return;
+
+    final descripcion = descripcionController.text.trim();
+    if (descripcion.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Describe la incidencia')),
+        );
+      }
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      // 🖼️ Subir imágenes (si hay)
+      List<String> urlsCloudinary = [];
+      for (final imagen in imagenes) {
+        if (!mounted) return;
+        final url = await subirImagenACloudinary(imagen);
+        if (url != null) urlsCloudinary.add(url);
+      }
+
+      final equipo = widget.equipoData;
+
+      // 📄 Datos de incidencia
+     // 📄 Datos de incidencia
+      final incidenciaData = {
+        'id_equipo': equipo['id_equipo'] as String,
+        'nombre_equipo': equipo['nombre'] as String,
+        'area': equipo['area_nombre'] as String,
+        'descripcion': descripcion,
+        'imagenes': urlsCloudinary,
+        'fecha_reporte': Timestamp.now(),
+        'estado': 'Pendiente',
+        
+        // Datos del usuario
+        'usuario_reportante_id': user.uid,
+        'usuario_reportante_email': user.email ?? '—',
+        
+        // ⚠️ CORRECCIÓN AQUÍ:
+        // Enviamos con AMBOS nombres para que funcione tu Cloud Function y tu App
+        'nombreUsuario': user.displayName ?? user.email?.split('@').first ?? 'Usuario', // Para la Notificación Push
+        'usuario_reportante_nombre': user.displayName ?? user.email?.split('@').first ?? 'Usuario', // Para tu App
+      };
+
+      // ✅ Guardar incidencia
+      final incidenciaDoc = await FirebaseFirestore.instance
+          .collection('incidencias')
+          .add(incidenciaData);
+
+      // 🔔 Notificar a jefes
+      final jefes = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .where('rol', isEqualTo: 'jefe')
+          .get();
+      for (final jefe in jefes.docs) {
+        if (!mounted) break;
+        await FirebaseFirestore.instance
+            .collection('notificaciones')
+            .doc(jefe.id)
+            .collection('inbox')
+            .add({
+          'tipo': 'nueva_incidencia',
+          'titulo': '🆕 Nueva incidencia reportada',
+          'cuerpo': 'En "${equipo['nombre']}" (${equipo['area_nombre']})',
+          'incidencia_id': incidenciaDoc.id,
+          'equipo_id': equipo['id_equipo'],
+          'timestamp': Timestamp.now(),
+          'leido': false,
+          'usuario_reportante_nombre': incidenciaData['usuario_reportante_nombre'],
+        });
+      }
+
+      // ✅ Éxito + navegación segura
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Incidencia registrada'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Limpiar descripcionController.clear();
+        setState(() {
+          imagenes.clear();
+          loading = false;
+        });
+
+        // 🔁 Navegación robusta: vuelve a UsuarioHome
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            // 👇 Usa esta ruta → debe existir en main.dart
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              '/usuario_home', // ← ¡CRÍTICO! Debe estar en routes
+              (route) => false,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e is FirebaseException ? e.message ?? 'Error' : '$e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ $msg'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted && loading) setState(() => loading = false);
+    }
   }
-
-  final descripcion = descripcionController.text.trim();
-  if (descripcion.isEmpty) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Describe la incidencia')),
-      );
-    }
-    return;
-  }
-
-  setState(() => loading = true);
-
-  try {
-    // 🖼️ Subir imágenes (si hay)
-    List<String> urlsCloudinary = [];
-    for (final imagen in imagenes) {
-      if (!mounted) return;
-      final url = await subirImagenACloudinary(imagen);
-      if (url != null) urlsCloudinary.add(url);
-    }
-
-    final equipo = widget.equipoData;
-
-    // 📄 Datos de incidencia
-    final incidenciaData = {
-      'id_equipo': equipo['id_equipo'] as String,
-      'nombre_equipo': equipo['nombre'] as String,
-      'area': equipo['area_nombre'] as String,
-      'descripcion': descripcion,
-      'imagenes': urlsCloudinary,
-      'fecha_reporte': Timestamp.now(),
-      'estado': 'Pendiente',
-      'usuario_reportante_id': user.uid,
-      'usuario_reportante_email': user.email ?? '—',
-      'usuario_reportante_nombre': 
-          user.displayName ?? user.email?.split('@').first ?? 'Usuario',
-    };
-
-    // ✅ Guardar incidencia
-    final incidenciaDoc = await FirebaseFirestore.instance
-        .collection('incidencias')
-        .add(incidenciaData);
-
-    // 🔔 Notificar a jefes
-    final jefes = await FirebaseFirestore.instance
-        .collection('usuarios')
-        .where('rol', isEqualTo: 'jefe')
-        .get();
-
-    for (final jefe in jefes.docs) {
-      if (!mounted) break;
-      await FirebaseFirestore.instance
-          .collection('notificaciones')
-          .doc(jefe.id)
-          .collection('inbox')
-          .add({
-        'tipo': 'nueva_incidencia',
-        'titulo': '🆕 Nueva incidencia reportada',
-        'cuerpo': 'En "${equipo['nombre']}" (${equipo['area_nombre']})',
-        'incidencia_id': incidenciaDoc.id,
-        'equipo_id': equipo['id_equipo'],
-        'timestamp': Timestamp.now(),
-        'leido': false,
-        'usuario_reportante_nombre': incidenciaData['usuario_reportante_nombre'],
-      });
-    }
-
-    // ✅ Éxito + navegación segura
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Incidencia registrada'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      // Limpiar
-      descripcionController.clear();
-      setState(() {
-        imagenes.clear();
-        loading = false;
-      });
-
-      // 🔁 Navegación robusta: vuelve a UsuarioHome
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          // 👇 Usa esta ruta → debe existir en main.dart
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/usuario_home', // ← ¡CRÍTICO! Debe estar en routes
-            (route) => false,
-          );
-        }
-      });
-    }
-
-  } catch (e) {
-    if (mounted) {
-      final msg = e is FirebaseException ? e.message ?? 'Error' : '$e';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ $msg'), backgroundColor: Colors.red),
-      );
-    }
-  } finally {
-    if (mounted && loading) setState(() => loading = false);
-  }
-}
-
 
   @override
   Widget build(BuildContext context) {
     const verdeBandera = Color(0xFF006400);
     final equipo = widget.equipoData;
-
     return Scaffold(
-    appBar: AppBar(
-  backgroundColor: const Color(0xFF006400), // verdeBandera
-  elevation: 0,
-  centerTitle: true,
-  leading: IconButton(
-    icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-    onPressed: () => Navigator.pop(context),
-  ),
-  title: const Text(
-    'Registrar Incidencia',
-    style: TextStyle(
-      fontFamily: 'Montserrat',
-      fontWeight: FontWeight.bold,
-      color: Colors.white,
-      fontSize: 18,
-    ),
-  ),
-),
-
+      appBar: AppBar(
+        backgroundColor: verdeBandera,
+        title: const Text(
+          'Registrar Incidencia',
+          style: TextStyle(
+            fontFamily: 'Montserrat',
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+          ),
+        ),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -307,7 +294,6 @@ Future<void> registrarIncidencia() async {
               ),
             ),
             const SizedBox(height: 24),
-
             // 📝 Descripción
             const Text(
               'Describe el problema',
@@ -331,7 +317,6 @@ Future<void> registrarIncidencia() async {
               ),
             ),
             const SizedBox(height: 20),
-
             // 📷 Acciones de imagen
             const Text(
               'Adjuntar fotos (opcional)',
@@ -368,7 +353,6 @@ Future<void> registrarIncidencia() async {
               ],
             ),
             const SizedBox(height: 12),
-
             // 🖼️ Vista previa horizontal
             if (imagenes.isNotEmpty)
               Column(
@@ -397,8 +381,7 @@ Future<void> registrarIncidencia() async {
                                   width: 120,
                                   height: 120,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      const Icon(Icons.broken_image, size: 40),
+                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 40),
                                 ),
                               ),
                             ),
@@ -430,7 +413,6 @@ Future<void> registrarIncidencia() async {
                   const SizedBox(height: 16),
                 ],
               ),
-
             // 🔘 Botón principal
             SizedBox(
               width: double.infinity,
@@ -442,11 +424,7 @@ Future<void> registrarIncidencia() async {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(color: Colors.white),
-                      )
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white))
                     : const Text(
                         '✅ Registrar Incidencia',
                         style: TextStyle(

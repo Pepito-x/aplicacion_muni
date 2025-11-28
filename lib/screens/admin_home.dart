@@ -13,6 +13,7 @@ import 'gestion_usuarios_screen.dart';
 import 'infraestructura_ti_screen.dart';
 import 'registrar_areas_screen.dart';
 import '../utils/role_validator.dart';
+import '../screens/direct_chat_home.dart'; // 👈 Asegúrate de tener este archivo
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -31,7 +32,7 @@ class _AdminHomeState extends State<AdminHome> {
   @override
   void initState() {
     super.initState();
-     _validateAndLoad();
+    _validateAndLoad();
     _cargarNombreJefe();
   }
 
@@ -43,7 +44,8 @@ class _AdminHomeState extends State<AdminHome> {
       (route) => false,
     );
   }
- Future<void> _validateAndLoad() async {
+
+  Future<void> _validateAndLoad() async {
     final isValid = await validateUserRole(
       context,
       allowedRoles: ['admin', 'jefe'],
@@ -51,8 +53,8 @@ class _AdminHomeState extends State<AdminHome> {
     if (isValid) {
       _cargarNombreJefe();
     }
-    // Si no es válido, ya se redirigió
   }
+
   Future<void> _cargarNombreJefe() async {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -85,7 +87,6 @@ class _AdminHomeState extends State<AdminHome> {
     });
   }
 
-  // 🔹 Conteo de notificaciones no leídas (reutilizable)
   Future<int> _contarNotificacionesNoLeidas() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return 0;
@@ -103,11 +104,10 @@ class _AdminHomeState extends State<AdminHome> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F7F5), // ✅ Coherencia total
-
+      backgroundColor: const Color(0xFFF4F7F5),
       body: Column(
         children: [
-          if (_currentIndex == 0) _buildHeaderCard(), // ✅ Solo en Inicio
+          if (_currentIndex == 0) _buildHeaderCard(),
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -116,10 +116,27 @@ class _AdminHomeState extends State<AdminHome> {
           ),
         ],
       ),
-
       bottomNavigationBar: _buildUltraProBottomMenu(),
+      // ✅ FAB dentro del Scaffold — ¡CORREGIDO!
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: verdeBandera,
+        child: const Icon(Icons.chat, color: Colors.white),
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DirectChatHome(
+                rol: 'jefe',
+                nombre: _nombreJefe ?? "Jefe",
+              ),
+            ),
+          );
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
     );
   }
+
 
   // ✅ Header card personalizada (igual que otros roles)
   Widget _buildHeaderCard() {

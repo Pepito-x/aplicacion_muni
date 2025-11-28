@@ -36,13 +36,16 @@ class IncidenciasAsignadasScreen extends StatelessWidget {
   }
 
   /// 🔹 Cambiar estado a resuelto
-  Future<void> marcarComoResuelta(String id) async {
+Future<void> marcarComoResuelta(String id) async {
     await FirebaseFirestore.instance
         .collection('incidencias')
         .doc(id)
-        .update({'estado': 'Resuelto'});
+        .update({
+          // Aseguramos que sea "Resuelto" con mayúscula inicial
+          // para que coincida con tu Cloud Function (si la ajustas)
+          'estado': 'Resuelto' 
+        });
   }
-
   String formatearFecha(Timestamp fecha) {
     final d = fecha.toDate();
     return "${d.day}/${d.month}/${d.year} ${d.hour}:${d.minute.toString().padLeft(2, '0')}";

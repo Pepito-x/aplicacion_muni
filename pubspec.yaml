@@ -10,13 +10,13 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # --- Firebase ---
+  # --- Firebase (solo lo necesario) ---
   firebase_core: ^4.2.1
   firebase_auth: ^6.1.2
   cloud_firestore: ^6.1.0
   firebase_storage: ^13.0.4
-  firebase_messaging: ^16.0.4
-  flutter_local_notifications: ^17.2.2
+  # ❌ firebase_messaging: ^16.0.4       ← ELIMINADO
+  # ⚠️ flutter_local_notifications: ^17.2.2 ← ELIMINADO (a menos que lo necesites para notifs locales)
 
   # --- PDF y archivos ---
   pdf: ^3.10.4
@@ -25,10 +25,8 @@ dependencies:
   excel: ^3.0.0
   shimmer: ^3.0.0
 
-
   # --- Gráficos (para reportes) ---
   syncfusion_flutter_charts: ^26.1.45
-  
 
   # --- UI y utilidades ---
   google_fonts: ^6.3.2
@@ -44,7 +42,7 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   intl: ^0.19.0
   lottie: ^2.3.0
-  
+  firebase_messaging: ^16.0.4
 
 dev_dependencies:
   flutter_test:

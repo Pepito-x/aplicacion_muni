@@ -19,37 +19,44 @@ class AuthService {
           .doc(cred.user!.uid)
           .get();
 
-      if (userDoc.exists) {
-        return userDoc.data()?['rol'];
-      } else {
-        return null;
-      }
+      // ✅ Solo devolvemos el rol si el usuario existe en Firestore
+      return userDoc.data()?['rol'] as String?;
     } on FirebaseAuthException catch (e) {
-      debugPrint('⚠️ Error al iniciar sesión: ${e.code}');
+      debugPrint('⚠️ AuthService.signIn error: ${e.code}');
+      return null;
+    } catch (e) {
+      debugPrint('❌ AuthService.signIn error desconocido: $e');
       return null;
     }
   }
 
   /// 🔹 Valida si el correo y código existen y no han sido usados
   Future<Map<String, dynamic>?> validarCodigo(
-      String correo, String codigo) async {
-    final query = await _firestore
-        .collection('usuarios_pendientes')
-        .where('correo', isEqualTo: correo.trim())
-        .where('codigo', isEqualTo: codigo.trim())
-        .limit(1)
-        .get();
+    String correo,
+    String codigo,
+  ) async {
+    try {
+      final query = await _firestore
+          .collection('usuarios_pendientes')
+          .where('correo', isEqualTo: correo.trim())
+          .where('codigo', isEqualTo: codigo.trim())
+          .limit(1)
+          .get();
 
-    if (query.docs.isEmpty) return null;
+      if (query.docs.isEmpty) return null;
 
-    final doc = query.docs.first;
-    if (doc['registrado'] == true) return null;
+      final doc = query.docs.first;
+      if (doc['registrado'] == true) return null;
 
-    return {
-      'docId': doc.id,
-      'rol': doc['rol'],
-      'correo': doc['correo'],
-    };
+      return {
+        'docId': doc.id,
+        'rol': doc['rol'],
+        'correo': doc['correo'],
+      };
+    } catch (e) {
+      debugPrint('❌ AuthService.validarCodigo error: $e');
+      return null;
+    }
   }
 
   /// 🔹 Registra al usuario en Firebase Auth y actualiza Firestore
@@ -66,37 +73,30 @@ class AuthService {
         password: password.trim(),
       );
 
-      // Actualiza el documento en usuarios_pendientes
       await _firestore.collection('usuarios_pendientes').doc(docId).update({
         'registrado': true,
         'nombre': nombre.trim(),
-        'fechaRegistro': DateTime.now(),
+        'fechaRegistro': FieldValue.serverTimestamp(),
       });
 
-      // Crea el documento oficial en usuarios
       await _firestore.collection('usuarios').doc(cred.user!.uid).set({
         'correo': correo.trim(),
         'nombre': nombre.trim(),
         'rol': rol,
-        'creadoEn': DateTime.now(),
+        'creadoEn': FieldValue.serverTimestamp(),
       });
     } on FirebaseAuthException catch (e) {
-      debugPrint('⚠️ Error al registrar usuario: ${e.code}');
+      debugPrint('❌ AuthService.registrarUsuario FirebaseAuth error: ${e.code}');
+      rethrow;
+    } catch (e) {
+      debugPrint('❌ AuthService.registrarUsuario error: $e');
       rethrow;
     }
   }
 
-/// 🔹 Cierra sesión y elimina el fcmToken del usuario
-Future<void> signOut() async {
-  final user = _auth.currentUser;
-
-  if (user != null) {
-    // 🧹 Borrar token FCM en Firestore
-    await _firestore.collection('usuarios').doc(user.uid).update({
-      'fcmToken': FieldValue.delete(),
-    });
+  /// 🔹 Cierra sesión (versión limpia: SIN FCM)
+  Future<void> signOut() async {
+    await _auth.signOut();
+    // ✅ Ya no borramos 'fcmToken' → no lo usamos
   }
-
-  await _auth.signOut();
-}
 }

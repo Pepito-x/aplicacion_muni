@@ -1,3 +1,4 @@
+// ✅ TecnicoHome — versión corregida con chat 1:1 integrado
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'areas_asignadas_screen.dart';
 import 'historial_screen.dart';
 import 'registrar_equipo_screen.dart';
 import '../utils/role_validator.dart';
+import '../screens/direct_chat_home.dart'; // 👈 asegúrate que la ruta es correcta
 
 class TecnicoHome extends StatefulWidget {
   const TecnicoHome({super.key});
@@ -25,10 +27,10 @@ class _TecnicoHomeState extends State<TecnicoHome> with TickerProviderStateMixin
   bool _loadingNombre = true;
 
   // 🌿 MISMA PALETA QUE USUARIOHOME — CONSISTENCIA MULTI-ROL
-  static const Color primaryDark = Color(0xFF0D4D3C);      // Verde oscuro elegante
-  static const Color primaryMedium = Color(0xFF157F62);    // Verde principal
-  static const Color accentGold = Color(0xFFF2C94C);        // Dorado elegante
-  static const Color backgroundLight = Color(0xFFF7F9F9);  // Fondo claro
+  static const Color primaryDark = Color(0xFF0D4D3C);
+  static const Color primaryMedium = Color(0xFF157F62);
+  static const Color accentGold = Color(0xFFF2C94C);
+  static const Color backgroundLight = Color(0xFFF7F9F9);
   static const Color cardBackground = Colors.white;
   static const Color textPrimary = Color(0xFF1E1F20);
   static const Color textSecondary = Color(0xFF6F7173);
@@ -37,7 +39,6 @@ class _TecnicoHomeState extends State<TecnicoHome> with TickerProviderStateMixin
   Timer? _relojTimer;
   DateTime _horaActual = DateTime.now();
 
-  // 🎨 Gradiente reutilizable
   static const LinearGradient primaryGradient = LinearGradient(
     colors: [primaryDark, primaryMedium],
     begin: Alignment.topLeft,
@@ -124,7 +125,7 @@ class _TecnicoHomeState extends State<TecnicoHome> with TickerProviderStateMixin
       backgroundColor: backgroundLight,
       body: Column(
         children: [
-          if (_currentIndex == 0) _buildHeaderGradient(), // ← Solo en inicio
+          if (_currentIndex == 0) _buildHeaderGradient(),
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 260),
@@ -134,6 +135,24 @@ class _TecnicoHomeState extends State<TecnicoHome> with TickerProviderStateMixin
         ],
       ),
       bottomNavigationBar: _buildBottomMenu(),
+      // ✅ FAB dentro del Scaffold → ¡CORREGIDO!
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: primaryMedium,
+        child: const Icon(Icons.chat, color: Colors.white),
+        onPressed: () {
+          // ✅ Solo usa _nombreTecnico (no otras variables inexistentes)
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DirectChatHome(
+                rol: 'tecnico',
+                nombre: _nombreTecnico ?? "Técnico",
+              ),
+            ),
+          );
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat, // opcional: más discreto
     );
   }
 

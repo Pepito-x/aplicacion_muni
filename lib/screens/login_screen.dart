@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:muni_incidencias/Services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
+
 import 'admin_home.dart';
 import 'tecnico_home.dart';
 import 'usuario_home.dart';
@@ -72,8 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => loading = true);
 
     try {
-      await _saveCredentials();
-
+      // Intentamos iniciar sesión
       final rol = await AuthService().signIn(email, pass);
 
       if (rol == null) {
@@ -84,8 +85,22 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      Widget destino;
+      // ✅ SI EL LOGIN FUE EXITOSO:
+      // 1. Guardamos credenciales si marcó "Recordar"
+      await _saveCredentials();
 
+      // 2. 🔥 ACTIVAMOS LAS NOTIFICACIONES PUSH AQUÍ 🔥
+      // Esto pedirá permiso y guardará el token FCM en la base de datos
+      try {
+        await NotificationService().initNotifications();
+        debugPrint("🔔 Notificaciones inicializadas correctamente");
+      } catch (e) {
+        debugPrint("⚠️ Error al iniciar notificaciones: $e");
+        // No detenemos el login si esto falla, pero lo registramos
+      }
+
+      // 3. Redirigimos según el rol
+      Widget destino;
       if (rol == 'admin' || rol == 'jefe') {
         destino = const AdminHome();
       } else if (rol == 'tecnico') {
@@ -94,16 +109,18 @@ class _LoginScreenState extends State<LoginScreen> {
         destino = const UsuarioHome();
       }
 
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => destino),
       );
+
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
     } finally {
-      setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
   }
 

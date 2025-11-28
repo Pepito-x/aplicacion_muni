@@ -10,6 +10,7 @@ import 'scan_qr_screen.dart';
 import 'mis_reportes_screen.dart';
 import 'guia_uso.dart';
 import '../utils/role_validator.dart';
+import '../screens/direct_chat_home.dart'; // 👈 Asegúrate de tener este archivo
 
 class UsuarioHome extends StatefulWidget {
   const UsuarioHome({super.key});
@@ -23,11 +24,11 @@ class _UsuarioHomeState extends State<UsuarioHome> with TickerProviderStateMixin
   String? _nombreUsuario;
   bool _loadingNombre = true;
 
-  // 🌿 NUEVA PALETA – VERDE PROFESIONAL
-  static const Color primaryDark = Color(0xFF0D4D3C);      // Verde oscuro elegante
-  static const Color primaryMedium = Color(0xFF157F62);    // Verde medio (principal)
-  static const Color accentGold = Color(0xFFF2C94C);       // Dorado elegante
-  static const Color backgroundLight = Color(0xFFF7F9F9);  // Gris claro
+  // 🌿 PALETA VERDE PROFESIONAL
+  static const Color primaryDark = Color(0xFF0D4D3C);
+  static const Color primaryMedium = Color(0xFF157F62);
+  static const Color accentGold = Color(0xFFF2C94C);
+  static const Color backgroundLight = Color(0xFFF7F9F9);
   static const Color cardBackground = Colors.white;
   static const Color textPrimary = Color(0xFF1E1F20);
   static const Color textSecondary = Color(0xFF6F7173);
@@ -125,6 +126,23 @@ class _UsuarioHomeState extends State<UsuarioHome> with TickerProviderStateMixin
         ],
       ),
       bottomNavigationBar: _buildBottomMenu(),
+      // ✅ FAB dentro del Scaffold — ¡CORREGIDO!
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: primaryMedium,
+        child: const Icon(Icons.chat, color: Colors.white),
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DirectChatHome(
+                rol: 'usuario',
+                nombre: _nombreUsuario ?? "Usuario",
+              ),
+            ),
+          );
+        },
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
     );
   }
 
@@ -274,7 +292,6 @@ class _UsuarioHomeState extends State<UsuarioHome> with TickerProviderStateMixin
       ),
     );
   }
-
   // RELOJ – VERDE PREMIUM + DORADO
   Widget _buildRelojCard() {
     final now = _horaActual;
