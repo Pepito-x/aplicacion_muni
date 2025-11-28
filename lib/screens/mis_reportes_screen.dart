@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'usuario_home.dart'; // 👈 IMPORTANTE: Importa tu Home aquí
 
 class MisReportesScreen extends StatelessWidget {
   const MisReportesScreen({super.key});
+
+  // 🔄 Función para ir al Home limpiando el historial
+  void _irAlHome(BuildContext context) {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const UsuarioHome()),
+      (route) => false, // Elimina todas las pantallas anteriores
+    );
+  }
 
   // 🔹 Formato bonito de fecha
   String _formatearFecha(Timestamp? fecha) {
@@ -16,28 +26,20 @@ class MisReportesScreen extends StatelessWidget {
   // 🔹 Colores del estado
   Color _colorEstado(String estado) {
     switch (estado.toLowerCase()) {
-      case 'pendiente':
-        return Colors.orange;
-      case 'en proceso':
-        return Colors.blueAccent;
-      case 'resuelto':
-        return Colors.green;
-      default:
-        return Colors.grey;
+      case 'pendiente': return Colors.orange;
+      case 'en proceso': return Colors.blueAccent;
+      case 'resuelto': return Colors.green;
+      default: return Colors.grey;
     }
   }
 
   // 🔹 Iconos del estado
   IconData _iconoEstado(String estado) {
     switch (estado.toLowerCase()) {
-      case 'pendiente':
-        return Icons.hourglass_bottom;
-      case 'en proceso':
-        return Icons.autorenew;
-      case 'resuelto':
-        return Icons.check_circle;
-      default:
-        return Icons.help_outline;
+      case 'pendiente': return Icons.hourglass_bottom;
+      case 'en proceso': return Icons.autorenew;
+      case 'resuelto': return Icons.check_circle;
+      default: return Icons.help_outline;
     }
   }
 
@@ -45,61 +47,70 @@ class MisReportesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     const verdeBandera = Color(0xFF006400);
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        backgroundColor: verdeBandera,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text(
-          'Mis Reportes',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
+    // 1. Envolvemos con PopScope para controlar el botón físico "Atrás"
+    return PopScope(
+      canPop: false, // Desactiva el pop automático
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        _irAlHome(context); // Redirige al Home
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        appBar: AppBar(
+          backgroundColor: verdeBandera,
+          elevation: 0,
+          centerTitle: true,
+          title: const Text(
+            'Mis Reportes',
+            style: TextStyle(
+              fontFamily: 'Montserrat',
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            // 2. Usamos la función de ir al Home en el botón de la AppBar
+            onPressed: () => _irAlHome(context), 
           ),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+
+        body: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('incidencias')
+              .orderBy('fecha_reporte', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (snapshot.data!.docs.isEmpty) return _emptyState();
+
+            final reportes = snapshot.data!.docs;
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: reportes.length,
+              itemBuilder: (context, index) {
+                final data = reportes[index].data() as Map<String, dynamic>;
+                final estado = data['estado'] ?? 'Desconocido';
+                final imagenes = List<String>.from(data['imagenes'] ?? []);
+
+                return _cardReporte(
+                  context: context,
+                  data: data,
+                  estado: estado,
+                  imagen: imagenes.isNotEmpty ? imagenes.first : null,
+                  colorEstado: _colorEstado(estado),
+                  iconEstado: _iconoEstado(estado),
+                  index: index,
+                );
+              },
+            );
+          },
         ),
-      ),
-
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('incidencias')
-            .orderBy('fecha_reporte', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.data!.docs.isEmpty) return _emptyState();
-
-          final reportes = snapshot.data!.docs;
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: reportes.length,
-            itemBuilder: (context, index) {
-              final data = reportes[index].data() as Map<String, dynamic>;
-              final estado = data['estado'] ?? 'Desconocido';
-              final imagenes = List<String>.from(data['imagenes'] ?? []);
-
-              return _cardReporte(
-                context: context,
-                data: data,
-                estado: estado,
-                imagen: imagenes.isNotEmpty ? imagenes.first : null,
-                colorEstado: _colorEstado(estado),
-                iconEstado: _iconoEstado(estado),
-                index: index,
-              );
-            },
-          );
-        },
       ),
     );
   }
@@ -193,18 +204,14 @@ class MisReportesScreen extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-
                       const SizedBox(height: 4),
-
                       Text(
                         data['descripcion'] ?? 'Sin descripción',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: Colors.grey.shade700, fontSize: 13, height: 1.3),
                       ),
-
                       const Spacer(),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -212,8 +219,6 @@ class MisReportesScreen extends StatelessWidget {
                             "Área: ${data['area']}",
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                           ),
-
-                          // 🟢 Chip estilizado
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
@@ -282,7 +287,6 @@ class MisReportesScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 Text(
                   data['nombre_equipo'] ?? 'Incidencia',
                   style: const TextStyle(
@@ -291,7 +295,6 @@ class MisReportesScreen extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
                 if (imagenes.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   SizedBox(
@@ -306,13 +309,11 @@ class MisReportesScreen extends StatelessWidget {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 18),
                 _rowDetalle("Área", data['area']),
                 _rowDetalle("Descripción", data['descripcion']),
                 _rowDetalle("Estado", estado),
                 _rowDetalle("Fecha", _formatearFecha(data['fecha_reporte'])),
-
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,

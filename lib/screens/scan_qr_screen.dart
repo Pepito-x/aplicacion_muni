@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'registrar_incidencia_screen.dart';
+import 'registrar_incidencia_screen.dart'; // Asegúrate de que la ruta sea correcta
+import 'usuario_home.dart'; // Asegúrate de que la ruta sea correcta
 
 class ScanQrScreen extends StatefulWidget {
   const ScanQrScreen({super.key});
@@ -10,247 +12,269 @@ class ScanQrScreen extends StatefulWidget {
   State<ScanQrScreen> createState() => _ScanQrScreenState();
 }
 
-class _ScanQrScreenState extends State<ScanQrScreen>
-    with SingleTickerProviderStateMixin {
-  bool _scanned = false;
-  final MobileScannerController controller = MobileScannerController();
-  late AnimationController _animationController;
+class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver {
+  
+  // Controlador del escáner
+  MobileScannerController? controller;
+
+  // Estados
+  bool _camaraMontada = false; 
+  bool _procesando = false;
 
   static const Color verdePrincipal = Color(0xFF006400);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Iniciamos la cámara después de que se monte el widget
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _inicializarCamara();
+    });
+  }
 
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
+  void _inicializarCamara() {
+    if (mounted) {
+      controller = MobileScannerController(
+        returnImage: false,
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        // Formatos específicos pueden ayudar al rendimiento
+        formats: [BarcodeFormat.qrCode], 
+      );
+      setState(() {
+        _camaraMontada = true;
+      });
+    }
   }
 
   @override
-  void dispose() {
-    _animationController.dispose();
-    controller.dispose();
+  Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    // Aseguramos la limpieza del controlador
+    controller?.dispose();
     super.dispose();
   }
 
-  Future<void> _buscarEquipo(String idEquipo) async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (controller == null || !controller!.value.isInitialized) return;
+    if (state == AppLifecycleState.inactive) {
+      controller?.stop();
+    } else if (state == AppLifecycleState.resumed) {
+      controller?.start();
+    }
+  }
+
+  void _regresarAlHome() {
+    // Usamos pushAndRemoveUntil para limpiar la pila y evitar volver a la cámara
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const UsuarioHome()), // Ajusta el nombre de tu Home
+      (route) => false,
+    );
+  }
+
+  Future<void> _procesarCodigo(String codigo) async {
+    if (_procesando) return; // Bloqueo de seguridad
+
+    // 1. 🛑 FASE CRÍTICA: DESMONTAJE VISUAL INMEDIATO
+    if (mounted) {
+      setState(() {
+        _procesando = true;
+        _camaraMontada = false; // Esto elimina el widget MobileScanner del árbol
+      });
+    }
+
+    // 2. 🛑 FASE CRÍTICA: LIMPIEZA DE HARDWARE
+    // Esperamos para que el emulador libere el buffer EGL.
+    // Este delay es vital para evitar el conflicto de recursos.
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    try {
+      if (controller != null) {
+        await controller!.stop();
+        controller!.dispose(); // Matamos el controlador totalmente
+        controller = null;
+      }
+    } catch (e) {
+      debugPrint("Error cerrando cámara (ignorable en este punto): $e");
+    }
+
+    // 3. CONSULTA A FIREBASE (Ya sin cámara consumiendo RAM)
     try {
       final doc = await FirebaseFirestore.instance
           .collection('equipos')
-          .doc(idEquipo)
+          .doc(codigo)
           .get();
 
+      if (!mounted) return;
+
       if (doc.exists) {
+        // ✅ ÉXITO: Navegar a la pantalla de registro
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => RegistrarIncidenciaScreen(
               equipoData: doc.data()!,
+              idEquipo: doc.id,
             ),
           ),
         );
       } else {
-        _showSnack("⚠️ No se encontró un equipo con ese código QR");
-        setState(() => _scanned = false);
+        // ❌ ERROR: Equipo no encontrado
+        _mostrarFeedback("⚠️ Equipo no encontrado", esError: true);
+        // Esperamos un poco para que el usuario lea el mensaje
+        await Future.delayed(const Duration(seconds: 2));
+        _reiniciarCamaraCompleta();
       }
     } catch (e) {
-      _showSnack("❌ Error al buscar equipo: $e");
-      setState(() => _scanned = false);
+      // ❌ ERROR: Problema de conexión o Firebase
+      _mostrarFeedback("❌ Error: $e", esError: true);
+      await Future.delayed(const Duration(seconds: 2));
+      _reiniciarCamaraCompleta();
     }
   }
 
-  void _showSnack(String msg) {
+  // Si falla la búsqueda, reiniciamos la cámara desde cero
+  void _reiniciarCamaraCompleta() {
+    if (!mounted) return;
+    setState(() {
+      _procesando = false;
+    });
+    _inicializarCamara();
+  }
+
+  void _mostrarFeedback(String msg, {bool esError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
+        backgroundColor: esError ? Colors.red : Colors.green,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-
-      // 🟢 AppBar profesional
-      appBar: AppBar(
-        backgroundColor: verdePrincipal,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Escanear Código QR',
-          style: TextStyle(
-            fontFamily: 'Montserrat',
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+    // Interceptar botón atrás físico
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        _regresarAlHome();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: verdePrincipal,
+          iconTheme: const IconThemeData(color: Colors.white),
+          title: const Text("Escanear QR", style: TextStyle(color: Colors.white)),
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
+            onPressed: _regresarAlHome,
           ),
         ),
-      ),
-
-      body: Stack(
-        children: [
-          // 📷 Cámara
-          MobileScanner(
-            controller: controller,
-            onDetect: (capture) {
-              if (_scanned) return;
-              final barcode = capture.barcodes.first;
-              if (barcode.rawValue != null) {
-                setState(() => _scanned = true);
-                _buscarEquipo(barcode.rawValue!);
-              }
-            },
-          ),
-
-          // 🟩 Degradado amarillo-verde encima del video
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  verdePrincipal.withOpacity(0.55),
-                  verdePrincipal.withOpacity(0.20),
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+        
+        body: Stack(
+          children: [
+            // CAPA 1: Cámara (Solo existe si _camaraMontada es true)
+            if (_camaraMontada && controller != null)
+              MobileScanner(
+                controller: controller!,
+                onDetect: (capture) {
+                  final List<Barcode> barcodes = capture.barcodes;
+                  for (final barcode in barcodes) {
+                    if (barcode.rawValue != null) {
+                      _procesarCodigo(barcode.rawValue!);
+                      break; // Procesamos solo el primer código detectado
+                    }
+                  }
+                },
               ),
-            ),
-          ),
 
-          // 🟩 Recuadro de escaneo animado
-          Center(
-            child: AnimatedBuilder(
-              animation: _animationController,
-              builder: (context, child) {
-                final glow = 3 + (_animationController.value * 3);
-
-                return Container(
-                  width: 260,
-                  height: 260,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(
-                      color: Colors.white,
-                      width: glow,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.white.withOpacity(0.25),
-                        blurRadius: 16,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ✨ Esquinas estilo premium blanco
-          Center(
-            child: SizedBox(
-              width: 260,
-              height: 260,
-              child: CustomPaint(
-                painter: _CornerPainter(color: Colors.white),
-              ),
-            ),
-          ),
-
-          // 📌 Texto guía
-          const Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Text(
-                "Alinea el código QR dentro del recuadro",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'Montserrat',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  shadows: [
-                    Shadow(
-                      blurRadius: 10,
-                      color: Colors.black54,
-                      offset: Offset(0, 2),
+            // CAPA 2: Pantalla de Carga (Fondo sólido negro)
+            // Si _camaraMontada es falso, esto tapa todo mientras procesa y evita glitches visuales
+            if (!_camaraMontada)
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Colors.black, 
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    CircularProgressIndicator(color: verdePrincipal),
+                    SizedBox(height: 20),
+                    Text(
+                      "Procesando...",
+                      style: TextStyle(color: Colors.white, fontSize: 18),
                     )
                   ],
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
 
-      // 🔦 Botón linterna estilo verde pro
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: verdePrincipal,
-        elevation: 6,
-        onPressed: () => controller.toggleTorch(),
-        child: ValueListenableBuilder(
-          valueListenable: controller.torchState,
-          builder: (_, state, __) {
-            return Icon(
-              state == TorchState.on ? Icons.flash_on : Icons.flash_off,
-              color: Colors.white,
-              size: 28,
-            );
-          },
+            // CAPA 3: Overlay visual (Solo si la cámara está activa)
+            if (_camaraMontada)
+              _buildScannerOverlay(),
+          ],
         ),
       ),
     );
   }
-}
 
-// 🎨 Esquinas profesionales
-class _CornerPainter extends CustomPainter {
-  final Color color;
-  _CornerPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const double length = 32;
-    const double stroke = 5;
-
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = stroke
-      ..style = PaintingStyle.stroke;
-
-    // Top left
-    canvas.drawLine(const Offset(0, 0), Offset(length, 0), paint);
-    canvas.drawLine(const Offset(0, 0), Offset(0, length), paint);
-
-    // Top right
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width - length, 0), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width, length), paint);
-
-    // Bottom left
-    canvas.drawLine(Offset(0, size.height), Offset(0, size.height - length), paint);
-    canvas.drawLine(Offset(0, size.height), Offset(length, size.height), paint);
-
-    // Bottom right
-    canvas.drawLine(
-      Offset(size.width, size.height),
-      Offset(size.width - length, size.height),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(size.width, size.height),
-      Offset(size.width, size.height - length),
-      paint,
+  Widget _buildScannerOverlay() {
+    return Stack(
+      children: [
+        ColorFiltered(
+          colorFilter: const ColorFilter.mode(Colors.black54, BlendMode.srcOut),
+          child: Stack(
+            children: [
+              Container(
+                decoration: const BoxDecoration(
+                  color: Colors.transparent,
+                  backgroundBlendMode: BlendMode.dstOut,
+                ),
+              ),
+              Center(
+                child: Container(
+                  width: 260,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Center(
+          child: Container(
+            width: 260,
+            height: 260,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.greenAccent, width: 3),
+            ),
+          ),
+        ),
+        const Positioned(
+          bottom: 80,
+          left: 0, 
+          right: 0,
+          child: Text(
+            "Apunta al código QR",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white, fontSize: 16),
+          ),
+        ),
+      ],
     );
   }
+}
 
-  @override
-  bool shouldRepaint(_) => true;
+extension on MobileScannerController {
+  get value => null;
 }

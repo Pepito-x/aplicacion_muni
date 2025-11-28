@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-// Asegúrate de importar tu pantalla de asignación si quieres navegar directo
 import 'asignar_tecnicos_screen.dart'; 
+import 'admin_home.dart'; // 👈 IMPORTANTE: Importa tu Home de Admin
 
 class JefeNotificacionesScreen extends StatelessWidget {
   const JefeNotificacionesScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Escuchamos cambios en la autenticación para seguridad
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
@@ -20,7 +19,6 @@ class JefeNotificacionesScreen extends StatelessWidget {
 
         final user = authSnapshot.data;
         if (user == null) {
-          // Si no hay usuario, volvemos al login
           WidgetsBinding.instance.addPostFrameCallback((_) {
             Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
           });
@@ -38,122 +36,210 @@ class _NotificacionesContent extends StatelessWidget {
 
   const _NotificacionesContent({required this.uid});
 
+  static const Color verdeBandera = Color(0xFF006400);
+
+  // 🔄 Navegación segura al AdminHome
+  void _irAlHome(BuildContext context) {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const AdminHome()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    const verdeBandera = Color(0xFF006400);
-
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: verdeBandera,
-        title: const Text(
-          'Centro de Notificaciones',
-          style: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.w600, color: Colors.white),
+    // 1. Control del botón físico "Atrás"
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        _irAlHome(context);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F5F5), // Fondo moderno
+        appBar: AppBar(
+          backgroundColor: verdeBandera,
+          elevation: 0,
+          centerTitle: true,
+          // 2. Flecha de regreso en AppBar
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            onPressed: () => _irAlHome(context),
+          ),
+          title: const Text(
+            'Notificaciones',
+            style: TextStyle(
+              fontFamily: 'Montserrat',
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 20,
+            ),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.done_all, color: Colors.white),
+              tooltip: "Marcar todo como leído",
+              onPressed: () => _marcarTodoLeido(),
+            )
+          ],
         ),
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          // Botón para marcar todo como leído (Opcional)
-          IconButton(
-            icon: const Icon(Icons.done_all),
-            tooltip: "Marcar todo como leído",
-            onPressed: () => _marcarTodoLeido(),
-          )
-        ],
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('notificaciones')
-            .doc(uid)
-            .collection('inbox')
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        body: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('notificaciones')
+              .doc(uid)
+              .collection('inbox')
+              .orderBy('timestamp', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: verdeBandera));
+            }
 
-          final docs = snapshot.data?.docs ?? [];
+            final docs = snapshot.data?.docs ?? [];
 
-          if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.notifications_off_outlined, size: 80, color: Colors.grey.shade300),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Estás al día',
-                    style: TextStyle(fontSize: 18, color: Colors.grey.shade600, fontFamily: 'Montserrat'),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'No hay notificaciones nuevas',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              
-              // Seguridad contra nulos
-              final titulo = data['titulo'] ?? 'Notificación';
-              final cuerpo = data['cuerpo'] ?? '';
-              final esNuevo = data['leido'] == false;
-              final tipo = data['tipo'] ?? 'general';
-
-              // 🟢 Funcionalidad: Deslizar para borrar
-              return Dismissible(
-                key: Key(doc.id),
-                direction: DismissDirection.endToStart,
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade400,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-                ),
-                onDismissed: (direction) {
-                  // Borramos de Firebase
-                  doc.reference.delete();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Notificación eliminada"), duration: Duration(seconds: 1)),
-                  );
-                },
-                child: Card(
-                  elevation: esNuevo ? 4 : 1,
-                  shadowColor: esNuevo ? Colors.orange.withOpacity(0.4) : Colors.black12,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: esNuevo 
-                        ? const BorderSide(color: Colors.orangeAccent, width: 1.5) 
-                        : BorderSide.none,
-                  ),
-                  color: esNuevo ? Colors.white : Colors.grey.shade50,
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: _buildIcono(tipo, esNuevo),
-                    title: Text(
-                      titulo,
-                      style: TextStyle(
-                        fontFamily: 'Montserrat',
-                        fontWeight: esNuevo ? FontWeight.bold : FontWeight.w600,
-                        color: Colors.black87,
-                        fontSize: 15,
+            if (docs.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        shape: BoxShape.circle,
                       ),
+                      child: Icon(Icons.notifications_off_outlined, size: 60, color: Colors.grey.shade400),
                     ),
-                    subtitle: Column(
+                    const SizedBox(height: 16),
+                    Text(
+                      'Estás al día',
+                      style: TextStyle(fontSize: 18, color: Colors.grey.shade600, fontFamily: 'Montserrat', fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'No hay notificaciones nuevas',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final doc = docs[index];
+                final data = doc.data() as Map<String, dynamic>;
+                return _buildNotificacionItem(context, doc, data);
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificacionItem(BuildContext context, QueryDocumentSnapshot doc, Map<String, dynamic> data) {
+    final titulo = data['titulo'] ?? 'Notificación';
+    final cuerpo = data['cuerpo'] ?? '';
+    final esNuevo = data['leido'] == false;
+    final tipo = data['tipo'] ?? 'general';
+
+    return Dismissible(
+      key: Key(doc.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Colors.red.shade400,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text("Eliminar", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            SizedBox(width: 8),
+            Icon(Icons.delete_outline, color: Colors.white, size: 28),
+          ],
+        ),
+      ),
+      onDismissed: (direction) {
+        doc.reference.delete();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Notificación eliminada"), duration: Duration(seconds: 1)),
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(esNuevo ? 0.08 : 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () async {
+              if (esNuevo) {
+                await doc.reference.update({'leido': true});
+              }
+              if (tipo == 'nueva_incidencia') {
+                Navigator.push(
+                  context, 
+                  MaterialPageRoute(builder: (_) => const AsignarTecnicosScreen())
+                );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Icono
+                  _buildIcono(tipo, esNuevo),
+                  const SizedBox(width: 16),
+                  
+                  // Contenido
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                titulo,
+                                style: TextStyle(
+                                  fontFamily: 'Montserrat',
+                                  fontWeight: esNuevo ? FontWeight.bold : FontWeight.w600,
+                                  color: Colors.black87,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            if (esNuevo)
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                          ],
+                        ),
                         const SizedBox(height: 6),
                         Text(
                           cuerpo,
@@ -162,42 +248,26 @@ class _NotificacionesContent extends StatelessWidget {
                           style: TextStyle(
                             fontFamily: 'Montserrat',
                             fontSize: 13,
-                            color: Colors.grey.shade700,
+                            color: esNuevo ? Colors.grey.shade800 : Colors.grey.shade600,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _formatDate(data['timestamp']),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
                         ),
                       ],
                     ),
-                    onTap: () async {
-                      // 1. Marcar como leído
-                      if (esNuevo) {
-                        await doc.reference.update({'leido': true});
-                      }
-
-                      // 2. Navegar según el tipo
-                      if (tipo == 'nueva_incidencia') {
-                         // Opción A: Ir a Asignar Técnicos
-                         Navigator.push(
-                           context, 
-                           MaterialPageRoute(builder: (_) => const AsignarTecnicosScreen())
-                         );
-                      }
-                    },
                   ),
-                ),
-              );
-            },
-          );
-        },
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  // Icono según el tipo de notificación
   Widget _buildIcono(String tipo, bool esNuevo) {
     IconData iconData;
     Color colorFondo;
@@ -225,34 +295,16 @@ class _NotificacionesContent extends StatelessWidget {
         colorIcono = Colors.grey;
     }
 
-    return Stack(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: colorFondo,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Icon(iconData, color: colorIcono, size: 20),
-          ),
-        ),
-        if (esNuevo)
-          Positioned(
-            right: 0,
-            top: 0,
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
-                border: Border.fromBorderSide(BorderSide(color: Colors.white, width: 2)),
-              ),
-            ),
-          ),
-      ],
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: colorFondo,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: Icon(iconData, color: colorIcono, size: 20),
+      ),
     );
   }
 
@@ -266,7 +318,7 @@ class _NotificacionesContent extends StatelessWidget {
       if (diff.inMinutes < 1) return 'Hace un momento';
       if (diff.inMinutes < 60) return 'Hace ${diff.inMinutes} min';
       if (diff.inHours < 24) return 'Hace ${diff.inHours} horas';
-      if (diff.inDays == 1) return 'Ayer a las ${date.hour.toString().padLeft(2,'0')}:${date.minute.toString().padLeft(2,'0')}';
+      if (diff.inDays == 1) return 'Ayer';
       
       return '${date.day}/${date.month}/${date.year}';
     }

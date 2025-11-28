@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// 📥 Importamos todas las pantallas necesarias
 import 'login_screen.dart';
 import 'ver_incidencias_screen.dart';
 import 'asignar_tecnicos_screen.dart';
@@ -13,7 +14,7 @@ import 'gestion_usuarios_screen.dart';
 import 'infraestructura_ti_screen.dart';
 import 'registrar_areas_screen.dart';
 import '../utils/role_validator.dart';
-import '../screens/direct_chat_home.dart'; // 👈 Asegúrate de tener este archivo
+import '../screens/direct_chat_home.dart';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -38,11 +39,13 @@ class _AdminHomeState extends State<AdminHome> {
 
   Future<void> _cerrarSesion(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
   }
 
   Future<void> _validateAndLoad() async {
@@ -77,28 +80,29 @@ class _AdminHomeState extends State<AdminHome> {
       } else {
         _nombreJefe = user.email?.split('@').first ?? "Jefe";
       }
-    } catch (e, stack) {
+    } catch (e) {
       debugPrint("Error al cargar nombre del jefe: $e");
       _nombreJefe = "Jefe";
     }
 
-    setState(() {
-      _loadingNombre = false;
-    });
+    if (mounted) {
+      setState(() {
+        _loadingNombre = false;
+      });
+    }
   }
 
-  Future<int> _contarNotificacionesNoLeidas() async {
+  Stream<int> _contarNotificacionesStream() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return 0;
+    if (uid == null) return const Stream.empty();
 
-    final snapshot = await FirebaseFirestore.instance
+    return FirebaseFirestore.instance
         .collection('notificaciones')
         .doc(uid)
         .collection('inbox')
         .where('leido', isEqualTo: false)
-        .get();
-
-    return snapshot.docs.length;
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
   }
 
   @override
@@ -107,7 +111,9 @@ class _AdminHomeState extends State<AdminHome> {
       backgroundColor: const Color(0xFFF4F7F5),
       body: Column(
         children: [
+          // 🟢 Header siempre visible en la pestaña de Inicio
           if (_currentIndex == 0) _buildHeaderCard(),
+          
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
@@ -116,8 +122,7 @@ class _AdminHomeState extends State<AdminHome> {
           ),
         ],
       ),
-      bottomNavigationBar: _buildUltraProBottomMenu(),
-      // ✅ FAB dentro del Scaffold — ¡CORREGIDO!
+      bottomNavigationBar: _buildBottomMenuLimpio(),
       floatingActionButton: FloatingActionButton(
         backgroundColor: verdeBandera,
         child: const Icon(Icons.chat, color: Colors.white),
@@ -137,8 +142,7 @@ class _AdminHomeState extends State<AdminHome> {
     );
   }
 
-
-  // ✅ Header card personalizada (igual que otros roles)
+  // 🔔 Header Card: Reportes + Notificaciones + Salir
   Widget _buildHeaderCard() {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 45, 16, 10),
@@ -192,16 +196,75 @@ class _AdminHomeState extends State<AdminHome> {
                   ],
                 ),
               ),
+              
+              // 📊 BOTÓN REPORTES (Nuevo lugar)
+              IconButton(
+                icon: const Icon(Icons.bar_chart, size: 28, color: Colors.grey),
+                tooltip: "Reportes Mensuales",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ReportesMensualesScreen()),
+                  );
+                },
+              ),
+
+              // 🔔 BOTÓN NOTIFICACIONES
+              StreamBuilder<int>(
+                stream: _contarNotificacionesStream(),
+                builder: (context, snapshot) {
+                  final count = snapshot.data ?? 0;
+                  return Stack(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.notifications_none, size: 28, color: Colors.grey),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const JefeNotificacionesScreen()),
+                          );
+                        },
+                      ),
+                      if (count > 0)
+                        Positioned(
+                          right: 8,
+                          top: 8,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                            child: Text(
+                              '$count',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+
+              const SizedBox(width: 4),
+
+              // 🚪 BOTÓN SALIR
               InkWell(
                 onTap: () => _cerrarSesion(context),
                 borderRadius: BorderRadius.circular(50),
                 child: Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: Colors.red.withOpacity(0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.logout, color: Colors.red),
+                  child: const Icon(Icons.logout, color: Colors.red, size: 20),
                 ),
               ),
             ],
@@ -211,58 +274,75 @@ class _AdminHomeState extends State<AdminHome> {
     );
   }
 
-  // ✅ Bottom nav idéntica a Usuario/Técnico (coherencia UX multi-rol)
-  Widget _buildUltraProBottomMenu() {
+  // ✅ Menú Inferior Ultra Limpio (5 Ítems)
+  Widget _buildBottomMenuLimpio() {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-        child: BottomNavigationBar(
-          elevation: 12,
-          currentIndex: _currentIndex,
-          backgroundColor: Colors.white.withOpacity(0.90),
-          selectedItemColor: verdeBandera,
-          unselectedItemColor: Colors.grey.shade500,
-          type: BottomNavigationBarType.fixed,
-          onTap: (index) => setState(() => _currentIndex = index),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              label: "Inicio",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.list_alt_outlined),
-              label: "Incidencias",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_search_outlined),
-              label: "Técnicos",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_outlined),
-              label: "Notificaciones",
-            ),
-          ],
+        child: Theme(
+          data: Theme.of(context).copyWith(canvasColor: Colors.white),
+          child: BottomNavigationBar(
+            elevation: 12,
+            currentIndex: _currentIndex,
+            backgroundColor: Colors.white.withOpacity(0.95),
+            selectedItemColor: verdeBandera,
+            unselectedItemColor: Colors.grey.shade400,
+            type: BottomNavigationBarType.fixed,
+            selectedFontSize: 11,
+            unselectedFontSize: 10,
+            onTap: (index) => setState(() => _currentIndex = index),
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home_outlined),
+                activeIcon: Icon(Icons.home),
+                label: "Inicio",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.list_alt),
+                label: "Incidencias",
+              ),
+              // "Técnicos" ahora es solo para ver lista, asignar está en el home
+              BottomNavigationBarItem(
+                icon: Icon(Icons.person_search_outlined),
+                label: "Técnicos", // Lista general o búsqueda
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.people_outline),
+                label: "Usuarios",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.dns_outlined),
+                label: "Infra",
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ✅ Páginas según índice (optimizadas para jefe)
+  // ✅ Switch Actualizado
   Widget _buildPage() {
     switch (_currentIndex) {
+      case 0:
+        return _buildHomeContent();
       case 1:
-        return const VerIncidenciasScreen(); // ✅ Prioritario
+        return const VerIncidenciasScreen();
       case 2:
-        return const AsignarTecnicosScreen(); // ✅ Acceso rápido
+        // Si tienes una pantalla solo para ver lista de técnicos, úsala aquí.
+        // Si no, reutilizamos AsignarTecnicosScreen como placeholder o creas una "ListaTecnicosScreen"
+        return const AsignarTecnicosScreen(); 
       case 3:
-        return const JefeNotificacionesScreen(); // ✅ Con badge en navbar
+        return const GestionUsuariosScreen();
+      case 4:
+        return const InfraestructuraTIScreen();
       default:
-        return _buildHomeContent(); // ✅ Grid con el resto
+        return _buildHomeContent();
     }
   }
 
-  // ✅ Home content: mismo estilo, con badge en notificaciones y acceso a todas las funciones
+  // ✅ Contenido del Home (Grid): Asignar Técnicos agregado aquí
   Widget _buildHomeContent() {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -270,7 +350,7 @@ class _AdminHomeState extends State<AdminHome> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Panel del Jefe de Informática",
+            "Panel de Control",
             style: TextStyle(
               fontFamily: 'Montserrat',
               fontSize: 19,
@@ -280,14 +360,14 @@ class _AdminHomeState extends State<AdminHome> {
           ),
           const SizedBox(height: 8),
           const Text(
-            "Gestiona incidencias, técnicos, usuarios y recursos tecnológicos",
+            "Gestión rápida de operaciones",
             style: TextStyle(
               fontFamily: 'Montserrat',
               fontSize: 14,
               color: Colors.black54,
             ),
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: 15),
 
           Expanded(
             child: GridView.count(
@@ -296,43 +376,20 @@ class _AdminHomeState extends State<AdminHome> {
               mainAxisSpacing: 16,
               childAspectRatio: 1.1,
               children: [
-                // ✅ Reemplaza "Ver Incidencias" → ya está en navbar
-                // ✅ Reemplaza "Asignar Técnicos" → ya está en navbar
-                // ✅ Reemplaza "Notificaciones" → ya está en navbar (con badge)
-
+                // 1. Asignar Técnicos (Acceso Directo)
                 _buildCard(
-                  icon: FontAwesomeIcons.chartPie,
-                  title: "Reportes\nMensuales",
-                  color: Colors.blue.shade800,
+                  icon: FontAwesomeIcons.userGear, // Icono distintivo
+                  title: "Asignar\nTécnicos",
+                  color: Colors.orange.shade800,
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ReportesMensualesScreen()),
+                      MaterialPageRoute(builder: (_) => const AsignarTecnicosScreen()),
                     );
                   },
                 ),
-                _buildCard(
-                  icon: FontAwesomeIcons.usersCog,
-                  title: "Gestión de\nUsuarios",
-                  color: Colors.teal.shade700,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const GestionUsuariosScreen()),
-                    );
-                  },
-                ),
-                _buildCard(
-                  icon: FontAwesomeIcons.server,
-                  title: "Infraestructura\nTI",
-                  color: Colors.red.shade700,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const InfraestructuraTIScreen()),
-                    );
-                  },
-                ),
+                
+                // 2. Registrar Áreas
                 _buildCard(
                   icon: FontAwesomeIcons.mapLocationDot,
                   title: "Registrar\nÁreas",
@@ -345,24 +402,20 @@ class _AdminHomeState extends State<AdminHome> {
                   },
                 ),
 
-                // ✅ Notificaciones con badge (aunque ya esté en navbar, redundancia útil)
-                FutureBuilder<int>(
-                  future: _contarNotificacionesNoLeidas(),
-                  builder: (context, snapshot) {
-                    final count = snapshot.data ?? 0;
-                    return _buildCardWithBadge(
-                      icon: FontAwesomeIcons.bell,
-                      title: "Notificaciones",
-                      color: Colors.deepPurple,
-                      badgeCount: count,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const JefeNotificacionesScreen()),
-                        );
-                      },
-                    );
-                  },
+                // 3. Gestión Usuarios (Acceso al tab)
+                _buildCard(
+                  icon: FontAwesomeIcons.usersCog,
+                  title: "Gestión\nUsuarios",
+                  color: Colors.teal.shade700,
+                  onTap: () => setState(() => _currentIndex = 3),
+                ),
+
+                // 4. Infraestructura (Acceso al tab)
+                _buildCard(
+                  icon: FontAwesomeIcons.server,
+                  title: "Infraestructura\nTI",
+                  color: Colors.red.shade700,
+                  onTap: () => setState(() => _currentIndex = 4),
                 ),
               ],
             ),
@@ -372,7 +425,6 @@ class _AdminHomeState extends State<AdminHome> {
     );
   }
 
-  // ✅ Tarjeta estándar (reutilizada de Usuario/Técnico)
   Widget _buildCard({
     required IconData icon,
     required String title,
@@ -400,75 +452,6 @@ class _AdminHomeState extends State<AdminHome> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 42, color: color),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Montserrat',
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ✅ Tarjeta con badge (notificaciones) — integrada al estilo unificado
-  Widget _buildCardWithBadge({
-    required IconData icon,
-    required String title,
-    required Color color,
-    required int badgeCount,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12.withOpacity(0.07),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              alignment: Alignment.topRight,
-              children: [
-                Icon(icon, size: 42, color: color),
-                if (badgeCount > 0)
-                  Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                    child: Text(
-                      '$badgeCount',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-              ],
-            ),
             const SizedBox(height: 12),
             Text(
               title,

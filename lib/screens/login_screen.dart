@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:muni_incidencias/Services/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Importante para reset pass
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/auth_service.dart';
+import 'package:muni_incidencias/Services/notification_service.dart';
 
 import 'admin_home.dart';
 import 'tecnico_home.dart';
@@ -25,12 +26,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _rememberSession = false;
 
+  static const Color verde = Color(0xFF006400);
+
   @override
   void initState() {
     super.initState();
     _loadSavedCredentials();
   }
 
+  // 📥 Cargar credenciales guardadas
   Future<void> _loadSavedCredentials() async {
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = prefs.getString('email') ?? '';
@@ -46,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // 💾 Guardar credenciales
   Future<void> _saveCredentials() async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -60,46 +65,35 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // 🔐 Iniciar Sesión
   Future<void> _login() async {
     final email = emailController.text.trim();
     final pass = passController.text.trim();
 
     if (email.isEmpty || pass.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Completa todos los campos')),
-      );
+      _showSnack('Completa todos los campos', Colors.orange);
       return;
     }
 
     setState(() => loading = true);
 
     try {
-      // Intentamos iniciar sesión
       final rol = await AuthService().signIn(email, pass);
 
       if (rol == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Usuario o credenciales incorrectas')),
-        );
+        _showSnack('Usuario o credenciales incorrectas', Colors.red);
         setState(() => loading = false);
         return;
       }
 
-      // ✅ SI EL LOGIN FUE EXITOSO:
-      // 1. Guardamos credenciales si marcó "Recordar"
       await _saveCredentials();
 
-      // 2. 🔥 ACTIVAMOS LAS NOTIFICACIONES PUSH AQUÍ 🔥
-      // Esto pedirá permiso y guardará el token FCM en la base de datos
       try {
         await NotificationService().initNotifications();
-        debugPrint("🔔 Notificaciones inicializadas correctamente");
       } catch (e) {
         debugPrint("⚠️ Error al iniciar notificaciones: $e");
-        // No detenemos el login si esto falla, pero lo registramos
       }
 
-      // 3. Redirigimos según el rol
       Widget destino;
       if (rol == 'admin' || rol == 'jefe') {
         destino = const AdminHome();
@@ -114,20 +108,161 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         MaterialPageRoute(builder: (_) => destino),
       );
-
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      _showSnack('Error: $e', Colors.red);
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
+  // 🔄 LÓGICA RECUPERAR CONTRASEÑA
+  void _mostrarOlvidePassword() {
+    final recoverEmailController = TextEditingController();
+    
+    // Si ya escribió algo en el login, lo usamos
+    if (emailController.text.isNotEmpty) {
+      recoverEmailController.text = emailController.text;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Para que suba con el teclado
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            top: 20, left: 24, right: 24
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(FontAwesomeIcons.unlockKeyhole, color: verde, size: 22),
+                  SizedBox(width: 10),
+                  Text(
+                    "Recuperar Contraseña",
+                    style: TextStyle(
+                      fontFamily: "Montserrat",
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: verde,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.",
+                style: TextStyle(color: Colors.grey, fontSize: 14),
+              ),
+              const SizedBox(height: 20),
+              
+              TextField(
+                controller: recoverEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: "Correo electrónico",
+                  prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final email = recoverEmailController.text.trim();
+                    if (email.isEmpty || !email.contains('@')) {
+                      _showSnack("Ingresa un correo válido", Colors.orange);
+                      return;
+                    }
+                    
+                    Navigator.pop(context); // Cierra el modal
+                    _enviarCorreoRecuperacion(email);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: verde,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    "Enviar Enlace",
+                    style: TextStyle(
+                      color: Colors.white, 
+                      fontWeight: FontWeight.bold,
+                      fontFamily: "Montserrat"
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _enviarCorreoRecuperacion(String email) async {
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      
+      // Mostrar diálogo de éxito
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Column(
+            children: const [
+              Icon(Icons.mark_email_read, color: verde, size: 50),
+              SizedBox(height: 10),
+              Text("¡Correo Enviado!", textAlign: TextAlign.center),
+            ],
+          ),
+          content: Text(
+            "Revisa tu bandeja de entrada en $email para restablecer tu contraseña.\n\n(Revisa también SPAM)",
+            textAlign: TextAlign.center,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Entendido", style: TextStyle(color: verde)),
+            )
+          ],
+        ),
+      );
+    } catch (e) {
+      _showSnack("Error al enviar correo: ${e.toString()}", Colors.red);
+    }
+  }
+
+  void _showSnack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    const verde = Color(0xFF006400);
-
     final height = MediaQuery.of(context).size.height;
     final width = MediaQuery.of(context).size.width;
     final isSmall = height < 700;
@@ -191,7 +326,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ===== Título =====
                         const Text(
                           "Bienvenido",
                           style: TextStyle(
@@ -277,9 +411,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         const SizedBox(height: 10),
 
+                        // ✅ BOTÓN OLVIDASTE CONTRASEÑA CONECTADO
                         Center(
                           child: TextButton.icon(
-                            onPressed: () {},
+                            onPressed: _mostrarOlvidePassword, // 👈 Aquí conectamos la función
                             icon: const Icon(FontAwesomeIcons.circleQuestion,
                                 size: 16, color: verde),
                             label: const Text(
@@ -323,7 +458,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ===== Campo contraseña =====
+  // ===== Widgets Auxiliares =====
   Widget _passwordField() {
     return TextField(
       controller: passController,
@@ -353,7 +488,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  // ===== Campo genérico =====
   Widget _inputField({
     required String label,
     required IconData icon,
