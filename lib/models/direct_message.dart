@@ -7,6 +7,10 @@ class DirectMessage {
   final String texto;
   final Timestamp timestamp;
   final bool leido;
+  
+  // 📷 CAMPOS NUEVOS PARA IMÁGENES
+  final String? imageUrl;
+  final String type; // 'text' o 'image'
 
   DirectMessage({
     required this.uid,
@@ -15,6 +19,8 @@ class DirectMessage {
     required this.texto,
     required this.timestamp,
     this.leido = false,
+    this.imageUrl,       // 📷 Opcional
+    this.type = 'text',  // 📷 Por defecto es texto
   });
 
   factory DirectMessage.fromFirestore(DocumentSnapshot doc) {
@@ -26,6 +32,10 @@ class DirectMessage {
       texto: data['texto'] ?? '',
       timestamp: data['timestamp'] ?? Timestamp.now(),
       leido: data['leido'] ?? false,
+      
+      // 📷 Mapeo de los nuevos campos
+      imageUrl: data['imageUrl'], 
+      type: data['type'] ?? 'text',
     );
   }
 
@@ -37,6 +47,10 @@ class DirectMessage {
       'texto': texto,
       'timestamp': timestamp,
       'leido': leido,
+      
+      // 📷 Guardar los nuevos campos
+      'imageUrl': imageUrl,
+      'type': type,
     };
   }
 }
@@ -84,12 +98,10 @@ class ChatPreview {
     final ultimoTexto = ultimoInfo?['texto'] ?? '';
     final ultimoTimestamp = ultimoInfo?['timestamp'] ?? Timestamp.now();
 
-    // 5. ⚠️ CORRECCIÓN CLAVE: Lógica de No Leídos
-    // En el servicio usamos arrayUnion, así que 'noLeidos' es una LISTA de UIDs [uid1, uid2]
+    // 5. Lógica de No Leídos
     final listaNoLeidos = List.from(data['noLeidos'] ?? []);
     
     // Si MI uid está en la lista, significa que NO he leído el mensaje.
-    // Retornamos 1 para activar el punto rojo, 0 si ya lo leí.
     final int cantidadNoLeidos = listaNoLeidos.contains(miUid) ? 1 : 0;
 
     return ChatPreview(
@@ -99,7 +111,7 @@ class ChatPreview {
       otroRol: otroRol,
       ultimoTexto: ultimoTexto,
       ultimoTimestamp: ultimoTimestamp,
-      noLeidos: cantidadNoLeidos, // ✅ Usamos la variable calculada arriba
+      noLeidos: cantidadNoLeidos,
     );
   }
 }

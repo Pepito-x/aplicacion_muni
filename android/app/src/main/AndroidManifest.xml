@@ -8,8 +8,8 @@
 
     <application
         android:name="${applicationName}"
-        android:label="muni_incidencias"
-        android:icon="@mipmap/ic_launcher">
+        android:label="Muni Incidencias Reque"
+        android:icon="@mipmap/launcher_icon">
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

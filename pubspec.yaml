@@ -4,50 +4,51 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.8.1
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # --- Firebase (solo lo necesario) ---
-  firebase_core: ^4.2.1
-  firebase_auth: ^6.1.2
-  cloud_firestore: ^6.1.0
-  firebase_storage: ^13.0.4
-  # ❌ firebase_messaging: ^16.0.4       ← ELIMINADO
-  # ⚠️ flutter_local_notifications: ^17.2.2 ← ELIMINADO (a menos que lo necesites para notifs locales)
+  # --- Firebase (Versiones estables) ---
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_storage: ^12.3.2
+  firebase_messaging: ^15.1.3
 
   # --- PDF y archivos ---
   pdf: ^3.10.4
   open_filex: ^4.5.0
-  path_provider: ^2.1.3
-  excel: ^3.0.0
+  path_provider: ^2.1.4
+  excel: ^4.0.3
   shimmer: ^3.0.0
 
-  # --- Gráficos (para reportes) ---
-  syncfusion_flutter_charts: ^26.1.45
+  # --- Gráficos ---
+  syncfusion_flutter_charts: ^26.2.9
 
   # --- UI y utilidades ---
-  google_fonts: ^6.3.2
-  flutter_animate: ^4.5.2
+  google_fonts: ^6.2.1
+  flutter_animate: ^4.5.0
   qr_flutter: ^4.1.0
   uuid: ^4.5.1
-  mobile_scanner: ^4.0.1
+  mobile_scanner: ^5.2.1
   http: ^1.2.2
+  cached_network_image: ^3.4.1
   image_picker: ^1.1.2
   shared_preferences: ^2.3.2
-  flutter_svg: ^2.0.9
+  flutter_svg: ^2.0.10
   cupertino_icons: ^1.0.8
   font_awesome_flutter: ^10.7.0
   intl: ^0.19.0
-  lottie: ^2.3.0
-  firebase_messaging: ^16.0.4
+  lottie: ^3.1.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^4.0.0
+  # 👇 Agregado para generar el ícono
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -66,3 +67,10 @@ flutter:
           weight: 600
         - asset: assets/fonts/Montserrat-Bold.ttf
           weight: 700
+
+# 👇 CONFIGURACIÓN DEL ÍCONO
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/img/logo_reque.png" # 👈 Tu imagen
+  min_sdk_android: 21

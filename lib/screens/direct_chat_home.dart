@@ -133,7 +133,7 @@ class _DirectChatHomeState extends State<DirectChatHome> {
     );
   }
 
-  // ⭐ Tarjeta de Chat Inteligente
+  // ⭐ Tarjeta de Chat Inteligente (CORREGIDA)
   Widget _buildContactTile(Map<String, dynamic> contacto) {
     final otroUid = contacto['uid'] as String;
     final chatId = _chatService.generarChatId(otroUid);
@@ -141,48 +141,57 @@ class _DirectChatHomeState extends State<DirectChatHome> {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('chats').doc(chatId).snapshots(),
       builder: (context, snapshot) {
-        // Datos por defecto (si nunca han hablado)
+        // Datos por defecto
         String ultimoMensaje = "Toca para iniciar conversación";
         String horaMensaje = "";
-        int noLeidos = 0;
+        int noLeidos = 0; // 0 = Leído, 1 = No leído
         bool hayActividad = false;
         bool esMensajeMio = false; 
 
         if (snapshot.hasData && snapshot.data!.exists) {
           final data = snapshot.data!.data() as Map<String, dynamic>;
           
-          // 🛠️ CORRECCIÓN DEL ERROR DE TIPO AQUÍ 👇
-          // Verificamos si es String o Map antes de asignarlo
+          // 1. OBTENER EL ÚLTIMO MENSAJE
           final rawMsg = data['ultimoMensaje'];
           if (rawMsg is String) {
             ultimoMensaje = rawMsg;
           } else if (rawMsg is Map) {
-            // Si es un objeto, intentamos sacar el texto de campos comunes
-            ultimoMensaje = rawMsg['texto'] ?? rawMsg['text'] ?? rawMsg['mensaje'] ?? "📷 Mensaje multimedia";
-          } else {
-            ultimoMensaje = "Mensaje recibido";
+            ultimoMensaje = rawMsg['texto'] ?? "📷 Foto enviada";
           }
-          // 🛠️ FIN DE LA CORRECCIÓN 
-
-          final timestamp = data['timestamp'] as Timestamp?;
+          
+          // 2. OBTENER LA HORA
+          final timestamp = data['ultimoTimestamp'] as Timestamp?; // ⚠️ Corregido a 'ultimoTimestamp' que es más fiable en la raíz
           if (timestamp != null) {
             horaMensaje = _formatearHora(timestamp);
           }
 
           final miUid = FirebaseAuth.instance.currentUser!.uid;
-          
-          // Lógica de No Leídos
-          if (data['noLeidos'] is Map) {
-             noLeidos = (data['noLeidos'][miUid] ?? 0) as int;
+
+          // 3. ⚠️ CORRECCIÓN CLAVE: LÓGICA DE NO LEÍDOS (LISTA, NO MAPA)
+          // El servicio usa arrayUnion, así que esto es una Lista de UIDs
+          if (data['noLeidos'] is List) {
+             final listaPendientes = List.from(data['noLeidos']);
+             // Si MI uid está en la lista, significa que NO he leído el mensaje
+             if (listaPendientes.contains(miUid)) {
+                noLeidos = 1; // Marcamos como pendiente
+             }
           }
 
-          // Verificar quién envió el último
-          if (data['ultimoSenderId'] == miUid) {
-            esMensajeMio = true;
+          // 4. VERIFICAR SI FUE MI MENSAJE
+          // Revisamos si el último UID registrado en el mensaje es el mío
+          if (rawMsg is Map && rawMsg['uid'] == miUid) {
+             esMensajeMio = true;
           }
 
           hayActividad = true;
         }
+
+        // --- RENDERIZADO VISUAL ---
+
+        // Definimos el estilo basado en si hay mensajes no leídos
+        final bool isUnread = noLeidos > 0;
+        final FontWeight fontWeight = isUnread ? FontWeight.w800 : FontWeight.normal;
+        final Color textColor = isUnread ? Colors.black : Colors.grey.shade600;
 
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -198,10 +207,8 @@ class _DirectChatHomeState extends State<DirectChatHome> {
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                 ),
               ),
-              // Indicador de rol pequeño
               Positioned(
-                right: 0,
-                bottom: 0,
+                right: 0, bottom: 0,
                 child: Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
@@ -228,21 +235,19 @@ class _DirectChatHomeState extends State<DirectChatHome> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // Hora del mensaje
               if (hayActividad)
                 Text(
                   horaMensaje,
                   style: TextStyle(
                     fontSize: 12,
-                    color: noLeidos > 0 ? verdeBandera : Colors.grey,
-                    fontWeight: noLeidos > 0 ? FontWeight.bold : FontWeight.normal,
+                    color: isUnread ? verdeBandera : Colors.grey,
+                    fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
             ],
           ),
           subtitle: Row(
             children: [
-              // Check de "Tú" si yo lo envié
               if (esMensajeMio && hayActividad)
                 Padding(
                   padding: const EdgeInsets.only(right: 4),
@@ -255,28 +260,28 @@ class _DirectChatHomeState extends State<DirectChatHome> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: noLeidos > 0 ? Colors.black87 : Colors.grey[600],
-                    fontWeight: noLeidos > 0 ? FontWeight.w600 : FontWeight.normal,
+                    color: textColor, // ⚫ Color negro si no leído
+                    fontWeight: fontWeight, // 𝗕 Negrita si no leído
                     fontSize: 14,
                   ),
                 ),
               ),
             ],
           ),
-          trailing: noLeidos > 0
+          // Punto verde indicador
+          trailing: isUnread
               ? Container(
-                  padding: const EdgeInsets.all(6),
+                  width: 12, height: 12,
                   decoration: const BoxDecoration(
                     color: verdeBandera,
                     shape: BoxShape.circle,
                   ),
-                  child: Text(
-                    noLeidos > 9 ? '9+' : noLeidos.toString(),
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
                 )
               : null,
           onTap: () {
+            // AL ENTRAR, MARCAMOS COMO LEÍDO
+            _chatService.marcarComoLeidos(chatId); // 👈 Importante llamar a esto
+            
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -294,7 +299,6 @@ class _DirectChatHomeState extends State<DirectChatHome> {
       },
     );
   }
-
   // 🛠️ Helpers de Diseño y Utilidades
   Color _colorPorRol(String rol) {
     switch (rol.toLowerCase()) {

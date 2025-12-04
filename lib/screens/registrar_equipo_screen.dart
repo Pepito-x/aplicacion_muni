@@ -19,12 +19,22 @@ class _RegistrarEquipoScreenState extends State<RegistrarEquipoScreen> {
   String? areaSeleccionadaId;
   String? areaSeleccionadaNombre;
   bool loading = false;
-  String? codigoGenerado;
+  
+  // Constante de color
+  static const Color verdeBandera = Color(0xFF006400);
 
   Future<void> registrarEquipo() async {
     if (!_formKey.currentState!.validate() || areaSeleccionadaId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Selecciona un área antes de continuar')),
+        SnackBar(
+          content: const Row(children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.white),
+            SizedBox(width: 10),
+            Text('Selecciona un área antes de continuar')
+          ]),
+          backgroundColor: Colors.orange.shade800,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -33,7 +43,7 @@ class _RegistrarEquipoScreenState extends State<RegistrarEquipoScreen> {
 
     try {
       final uuid = const Uuid();
-      final idUnico = uuid.v4(); // 🔹 Genera ID único para el equipo
+      final idUnico = uuid.v4();
 
       final equipoData = {
         'id_equipo': idUnico,
@@ -47,14 +57,12 @@ class _RegistrarEquipoScreenState extends State<RegistrarEquipoScreen> {
 
       await FirebaseFirestore.instance.collection('equipos').doc(idUnico).set(equipoData);
 
-      setState(() {
-        codigoGenerado = idUnico;
-      });
+      if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Equipo registrado correctamente')),
-      );
+      // Mostrar el QR en un diálogo bonito en lugar de abajo
+      _mostrarDialogoExito(idUnico, nombreController.text.trim());
 
+      // Limpiar formulario
       nombreController.clear();
       serieController.clear();
       descripcionController.clear();
@@ -62,214 +70,260 @@ class _RegistrarEquipoScreenState extends State<RegistrarEquipoScreen> {
         areaSeleccionadaId = null;
         areaSeleccionadaNombre = null;
       });
+
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Error al registrar equipo: $e')),
+        SnackBar(content: Text('❌ Error al registrar: $e'), backgroundColor: Colors.red),
       );
     } finally {
-      setState(() => loading = false);
+      if (mounted) setState(() => loading = false);
     }
+  }
+
+  // 🔹 Función para mostrar el resultado con estilo (CORREGIDA)
+  void _mostrarDialogoExito(String codigo, String nombreEquipo) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: const EdgeInsets.all(20),
+          // ScrollView es importante por si la pantalla es muy pequeña
+          content: SingleChildScrollView( 
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_outline, color: verdeBandera, size: 60),
+                const SizedBox(height: 10),
+                const Text(
+                  "¡Registro Exitoso!",
+                  style: TextStyle(fontFamily: 'Montserrat', fontWeight: FontWeight.bold, fontSize: 18),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  nombreEquipo, 
+                  style: const TextStyle(color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                
+                // 🔧 SOLUCIÓN: SizedBox para forzar un tamaño exacto
+                SizedBox(
+                  height: 200, 
+                  width: 200,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 5))
+                      ],
+                    ),
+                    // Center es vital para que el QR no intente estirarse
+                    child: Center( 
+                      child: QrImageView(
+                        data: codigo,
+                        version: QrVersions.auto,
+                        size: 180, // El tamaño interno del dibujo
+                        gapless: false,
+                        // padding: const EdgeInsets.all(0), // A veces ayuda quitar el padding interno
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 10),
+                Text(
+                  "ID: ${codigo.substring(0, 8)}...", 
+                  style: TextStyle(fontFamily: 'Montserrat', fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cerrar", style: TextStyle(color: verdeBandera, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  // 🔹 Widget auxiliar para inputs
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: verdeBandera),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: verdeBandera, width: 1.5),
+      ),
+      labelStyle: TextStyle(color: Colors.grey[600], fontFamily: 'Montserrat'),
+      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    const verdeBandera = Color(0xFF006400);
-
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5), 
+      
+      // 🔹 APP BAR MODIFICADO (Estilo AreasAsignadasScreen)
       appBar: AppBar(
         backgroundColor: verdeBandera,
         centerTitle: true,
+        elevation: 0,
+        // Flecha blanca explícita
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text(
-          'Registrar Equipo',
+          'Nuevo Equipo',
           style: TextStyle(
             fontFamily: 'Montserrat',
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
+            fontWeight: FontWeight.w700, // Negrita fuerte
+            color: Colors.white,         // Blanco puro
+            fontSize: 20,
           ),
         ),
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.white, Color(0xFFE8F5E9)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Datos del Equipo',
-                  style: TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: verdeBandera,
-                  ),
+
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Encabezado visual
+              Center(
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: verdeBandera.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.devices_other, size: 40, color: verdeBandera),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Complete la información',
+                      style: TextStyle(color: Colors.grey, fontFamily: 'Montserrat'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 20),
+              ),
+              const SizedBox(height: 30),
 
-                TextFormField(
-                  controller: nombreController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre del equipo',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) =>
-                      value == null || value.isEmpty ? 'Ingrese el nombre del equipo' : null,
-                ),
-                const SizedBox(height: 15),
+              // CAMPO NOMBRE
+              TextFormField(
+                controller: nombreController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: _inputDecoration('Nombre del equipo', Icons.computer),
+                validator: (value) => value == null || value.isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 15),
 
-                TextFormField(
-                  controller: serieController,
-                  decoration: const InputDecoration(
-                    labelText: 'Número de serie',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) =>
-                      value == null || value.isEmpty ? 'Ingrese el número de serie' : null,
-                ),
-                const SizedBox(height: 15),
+              // CAMPO SERIE
+              TextFormField(
+                controller: serieController,
+                decoration: _inputDecoration('Número de serie', Icons.qr_code),
+                validator: (value) => value == null || value.isEmpty ? 'Requerido' : null,
+              ),
+              const SizedBox(height: 15),
 
-                // 🔽 Dropdown dinámico de áreas
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('areas').snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                      return const Text(
-                        '⚠️ No hay áreas registradas. El jefe debe registrar una primero.',
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontSize: 14,
-                          color: Colors.redAccent,
+              // DROPDOWN ÁREAS
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('areas').snapshots(),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: LinearProgressIndicator(color: verdeBandera));
+                  }
+                  
+                  final areas = snapshot.data!.docs;
+                  
+                  return DropdownButtonFormField<String>(
+                    decoration: _inputDecoration('Área asignada', Icons.location_on),
+                    value: areaSeleccionadaId,
+                    icon: const Icon(Icons.keyboard_arrow_down, color: verdeBandera),
+                    dropdownColor: Colors.white,
+                    items: areas.map((area) {
+                      return DropdownMenuItem<String>(
+                        value: area.id,
+                        child: Text(
+                          area['nombre'],
+                          style: const TextStyle(fontFamily: 'Montserrat'),
                         ),
                       );
-                    }
+                    }).toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        areaSeleccionadaId = value;
+                        areaSeleccionadaNombre = areas.firstWhere((a) => a.id == value)['nombre'].toString();
+                      });
+                    },
+                    validator: (value) => value == null ? 'Seleccione un área' : null,
+                  );
+                },
+              ),
+              const SizedBox(height: 15),
 
-                    final areas = snapshot.data!.docs;
-
-                    return DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(
-                        labelText: 'Área asignada',
-                        border: OutlineInputBorder(),
-                      ),
-                      value: areaSeleccionadaId,
-                      items: areas.map((area) {
-                        return DropdownMenuItem<String>(
-                          value: area.id,
-                          child: Text(area['nombre']),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          areaSeleccionadaId = value;
-                          areaSeleccionadaNombre = areas
-                              .firstWhere((a) => a.id == value)['nombre']
-                              .toString();
-                        });
-                      },
-                      validator: (value) =>
-                          value == null ? 'Seleccione un área' : null,
-                    );
-                  },
+              // CAMPO DESCRIPCIÓN
+              TextFormField(
+                controller: descripcionController,
+                maxLines: 3,
+                decoration: _inputDecoration('Descripción o estado', Icons.description_outlined).copyWith(
+                  alignLabelWithHint: true,
                 ),
+              ),
+              const SizedBox(height: 30),
 
-                const SizedBox(height: 15),
-
-                TextFormField(
-                  controller: descripcionController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Descripción o estado del equipo',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 25),
-
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: loading ? null : registrarEquipo,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: verdeBandera,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+              // BOTÓN DE ACCIÓN
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton.icon(
+                  onPressed: loading ? null : registrarEquipo,
+                  icon: loading 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                      : const Icon(Icons.save_rounded, color: Colors.white),
+                  label: Text(
+                    loading ? ' Procesando...' : 'Registrar Equipo',
+                    style: const TextStyle(
+                      fontFamily: 'Montserrat',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.white,
                     ),
-                    child: loading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'Registrar y generar QR',
-                            style: TextStyle(
-                              fontFamily: 'Montserrat',
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                              color: Colors.white,
-                            ),
-                          ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: verdeBandera,
+                    elevation: 5,
+                    shadowColor: verdeBandera.withOpacity(0.4),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   ),
                 ),
-                const SizedBox(height: 25),
-
-                if (codigoGenerado != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'Código QR del equipo:',
-                        style: TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                          color: verdeBandera,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            color: Colors.white,
-                            boxShadow: [
-                              BoxShadow(
-                                color: verdeBandera.withOpacity(0.2),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          child: QrImageView(
-                            data: codigoGenerado!,
-                            version: QrVersions.auto,
-                            size: 200,
-                            backgroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Código único: $codigoGenerado',
-                        style: const TextStyle(
-                          fontFamily: 'Montserrat',
-                          fontSize: 13,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
+              ),
+              
+              const SizedBox(height: 20),
+            ],
           ),
         ),
       ),
