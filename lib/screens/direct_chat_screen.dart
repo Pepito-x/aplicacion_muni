@@ -6,6 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+// 🎙️ NUEVAS IMPORTACIONES DE AUDIO
+import 'package:record/record.dart'; 
+import 'package:audioplayers/audioplayers.dart'; 
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import 'package:muni_incidencias/Services/direct_chat_service.dart';
 import '../models/direct_message.dart';
 
@@ -41,21 +47,32 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
   
   // Variables para Imágenes
   final ImagePicker _picker = ImagePicker();
-  bool _isUploading = false; // Para mostrar indicador de carga
+  bool _isUploading = false; 
+
+  // 🎙️ VARIABLES DE AUDIO
+  late final AudioRecorder _audioRecorder;
+  bool _isRecording = false;
+  String? _audioPath;
 
   static const Color verdeBandera = Color(0xFF006400);
 
   @override
+  void initState() {
+    super.initState();
+    _audioRecorder = AudioRecorder();
+  }
+
+  @override
   void dispose() {
+    _audioRecorder.dispose(); // Limpiar grabadora
     _textController.dispose();
     super.dispose();
   }
 
   // ----------------------------------------------------------------------
-  // 📸 LÓGICA DE IMÁGENES Y CLOUDINARY
+  // 📸 LÓGICA DE IMÁGENES (CLOUDINARY IMAGE)
   // ----------------------------------------------------------------------
 
-  // 1. Subir a Cloudinary
   Future<String?> _subirImagenACloudinary(File imagen) async {
     try {
       final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
@@ -70,7 +87,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         final data = json.decode(resBody);
         return data['secure_url'] as String?;
       } else {
-        debugPrint('Error Cloudinary: ${response.statusCode}, $resBody');
+        debugPrint('Error Cloudinary Imagen: ${response.statusCode}, $resBody');
         return null;
       }
     } catch (e) {
@@ -79,12 +96,11 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     }
   }
 
-  // 2. Seleccionar (Cámara o Galería) y Procesar
   Future<void> _seleccionarYEnviarImagen(ImageSource source) async {
     try {
       final picked = await _picker.pickImage(
         source: source,
-        imageQuality: 70, // Optimización
+        imageQuality: 70, 
         maxHeight: 1080,
         maxWidth: 1080,
       );
@@ -93,19 +109,17 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
 
       setState(() => _isUploading = true);
 
-      // Subir imagen
       File imagenFile = File(picked.path);
       String? secureUrl = await _subirImagenACloudinary(imagenFile);
 
       if (secureUrl != null) {
-        // Enviar mensaje con tipo 'image'
         await _chatService.sendMessage(
           otroUid: _extraerOtroUid(widget.chatId),
-          texto: "📷 Foto enviada", // Texto de respaldo
+          texto: "📷 Foto enviada",
           miNombre: widget.nombre,
           miRol: widget.rol,
-          imageUrl: secureUrl, // <--- URL DE CLOUDINARY
-          type: 'image',       // <--- TIPO IMAGEN
+          imageUrl: secureUrl,
+          type: 'image',
         );
       } else {
         if (mounted) {
@@ -116,6 +130,84 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       }
     } catch (e) {
       debugPrint("Error seleccionando imagen: $e");
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // 🎙️ LÓGICA DE AUDIO (GRABAR Y SUBIR A CLOUDINARY VIDEO)
+  // ----------------------------------------------------------------------
+
+  // 1. Iniciar Grabación
+  Future<void> _startRecording() async {
+    try {
+      // Verificar permisos
+      if (await _audioRecorder.hasPermission()) {
+        final directory = await getTemporaryDirectory();
+        // Guardamos como .m4a
+        final path = '${directory.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _audioRecorder.start(const RecordConfig(), path: path);
+        
+        setState(() {
+          _isRecording = true;
+          _audioPath = path;
+        });
+        debugPrint("🎙️ Grabando en: $path");
+      }
+    } catch (e) {
+      debugPrint("Error al iniciar grabación: $e");
+    }
+  }
+
+  // 2. Detener Grabación y Enviar
+  Future<void> _stopAndSendRecording() async {
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() => _isRecording = false);
+
+      if (path != null) {
+        debugPrint("✅ Grabación finalizada: $path");
+        _subirYEnviarAudio(File(path));
+      }
+    } catch (e) {
+      debugPrint("Error al detener grabación: $e");
+    }
+  }
+
+  // 3. Subir Audio (Endpoint VIDEO)
+  Future<void> _subirYEnviarAudio(File audioFile) async {
+    setState(() => _isUploading = true);
+    try {
+      // ⚠️ IMPORTANTE: Usamos 'video/upload' para audios en Cloudinary
+      final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/video/upload');
+      
+      final request = http.MultipartRequest('POST', url)
+        ..fields['upload_preset'] = uploadPreset
+        ..files.add(await http.MultipartFile.fromPath('file', audioFile.path));
+      
+      final response = await request.send();
+      final resBody = await response.stream.bytesToString();
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(resBody);
+        String secureUrl = data['secure_url'];
+
+        // Enviar mensaje tipo 'audio'
+        await _chatService.sendMessage(
+          otroUid: _extraerOtroUid(widget.chatId),
+          texto: "🎤 Nota de voz", 
+          miNombre: widget.nombre,
+          miRol: widget.rol,
+          imageUrl: secureUrl, // Guardamos URL del audio aquí
+          type: 'audio',       
+        );
+      } else {
+        debugPrint('Error Cloudinary Audio: ${response.statusCode}, $resBody');
+      }
+    } catch (e) {
+      debugPrint('Excepción subiendo audio: $e');
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -194,7 +286,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
       ),
 
-      // 2. DRAWER (Panel Lateral)
+      // 2. DRAWER
       endDrawer: _buildIncidenciasDrawer(),
 
       // 3. BODY
@@ -231,7 +323,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                       return _buildEmptyState();
                     }
 
-                    // Ordenar descendente (Nuevo -> Viejo)
+                    // Ordenar descendente
                     mensajes.sort((a, b) {
                         final tA = a.timestamp?.toDate() ?? DateTime.now();
                         final tB = b.timestamp?.toDate() ?? DateTime.now();
@@ -252,7 +344,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                 ),
               ),
 
-              // Barra de carga si se está subiendo foto
+              // Barra de carga general (Imagen o Audio)
               if (_isUploading)
                 Container(
                   color: Colors.black12,
@@ -262,7 +354,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                     children: const [
                       SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                       SizedBox(width: 10),
-                      Text("Enviando foto...", style: TextStyle(fontSize: 12)),
+                      Text("Subiendo archivo...", style: TextStyle(fontSize: 12)),
                     ],
                   ),
                 ),
@@ -309,12 +401,14 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
       ),
     );
   }
-// 🔹 BURBUJA DE MENSAJE (CON TAP PARA VER FULL SCREEN)
+
+  // 🔹 BURBUJA DE MENSAJE
   Widget _buildMessageBubble(DirectMessage msg, bool isMe) {
     final DateTime fecha = msg.timestamp != null ? msg.timestamp.toDate() : DateTime.now();
     final time = DateFormat('HH:mm').format(fecha);
 
-    final bool esImagen = msg.type == 'image' || (msg.imageUrl != null && msg.imageUrl!.isNotEmpty);
+    final bool esImagen = msg.type == 'image';
+    final bool esAudio = msg.type == 'audio';
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -322,7 +416,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         child: Container(
           margin: const EdgeInsets.only(bottom: 6),
-          padding: esImagen 
+          padding: (esImagen || esAudio)
             ? const EdgeInsets.all(4) 
             : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -342,20 +436,15 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               
-              // 📸 MOSTRAR IMAGEN INTERACTIVA
+              // 📸 IMAGEN
               if (esImagen && msg.imageUrl != null)
                 Container(
-                  constraints: const BoxConstraints(
-                    maxHeight: 280, 
-                    minHeight: 100,
-                    minWidth: 150,
-                  ),
+                  constraints: const BoxConstraints(maxHeight: 280, minHeight: 100, minWidth: 150),
                   margin: const EdgeInsets.only(bottom: 4),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: GestureDetector( // 👈 AQUÍ AGREGAMOS EL GESTO
+                    child: GestureDetector(
                       onTap: () {
-                        // 🚀 Navegar a Pantalla Completa
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -374,32 +463,25 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
                               return Container(
                                 height: 150, width: 200,
                                 color: Colors.grey[200],
-                                child: const Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)
-                                ),
+                                child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)),
                               );
                             },
                             errorBuilder: (context, error, stackTrace) =>
-                                const SizedBox(
-                                  height: 150, width: 150,
-                                  child: Center(child: Icon(Icons.broken_image, color: Colors.grey))
-                                ),
+                                const SizedBox(height: 150, width: 150, child: Center(child: Icon(Icons.broken_image, color: Colors.grey))),
                           ),
-                          
-                          // ✨ Indicador visual sutil de que se puede tocar (opcional)
-                          Positioned.fill(
-                            child: Container(
-                              color: Colors.transparent, // Necesario para capturar taps en zonas vacías si las hubiera
-                            ),
-                          ),
+                          Positioned.fill(child: Container(color: Colors.transparent)),
                         ],
                       ),
                     ),
                   ),
                 ),
 
-              // 📝 TEXTO
-              if (!esImagen || (msg.texto.isNotEmpty && !msg.texto.contains("Foto enviada")))
+              // 🎤 AUDIO (REPRODUCTOR)
+              if (esAudio && msg.imageUrl != null)
+                 AudioMessageBubble(audioUrl: msg.imageUrl!, isMe: isMe),
+
+              // 📝 TEXTO (Si no es multimedia)
+              if (!esImagen && !esAudio)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4, right: 4, left: 4),
                   child: Text(
@@ -411,7 +493,7 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
 
               // 🕒 HORA
               Padding(
-                padding: const EdgeInsets.only(right: 2),
+                padding: const EdgeInsets.only(right: 2, bottom: 2),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -430,65 +512,109 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     );
   }
 
-  // 🔹 INPUT (BOTONES DE FOTO Y GALERÍA)
+  // 🔹 INPUT (BOTONES DE FOTO, GALERÍA Y AUDIO)
   Widget _buildInput() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       color: Colors.transparent,
       child: SafeArea(
-        child: Row(
+        child: Column(
           children: [
-            Expanded(
-              child: Container(
+            // Indicador visual si está grabando
+            if (_isRecording)
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(25),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 2))
-                  ],
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
-                  children: [
-                    // BOTÓN GALERÍA
-                    IconButton(
-                      icon: Icon(Icons.photo_library_outlined, color: Colors.grey.shade600),
-                      onPressed: _isUploading ? null : () => _seleccionarYEnviarImagen(ImageSource.gallery),
-                    ),
-                    
-                    Expanded(
-                      child: TextField(
-                        controller: _textController,
-                        textCapitalization: TextCapitalization.sentences,
-                        minLines: 1,
-                        maxLines: 5,
-                        decoration: const InputDecoration(
-                          hintText: 'Mensaje...',
-                          hintStyle: TextStyle(color: Colors.grey),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 10),
-                        ),
-                      ),
-                    ),
-                    
-                    // BOTÓN CÁMARA
-                    IconButton(
-                      icon: Icon(Icons.camera_alt_outlined, color: Colors.grey.shade600),
-                      onPressed: _isUploading ? null : () => _seleccionarYEnviarImagen(ImageSource.camera),
-                    ),
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.mic, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text("Grabando... Toca el botón rojo para enviar", style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _sendMessage,
-              child: CircleAvatar(
-                radius: 24,
-                backgroundColor: verdeBandera,
-                child: _isUploading 
-                  ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                  : const Icon(Icons.send_rounded, color: Colors.white, size: 22),
-              ),
+
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 5, offset: const Offset(0, 2))
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        // Galería
+                        IconButton(
+                          icon: Icon(Icons.photo_library_outlined, color: Colors.grey.shade600),
+                          onPressed: (_isUploading || _isRecording) ? null : () => _seleccionarYEnviarImagen(ImageSource.gallery),
+                        ),
+                        
+                        // Campo de texto
+                        Expanded(
+                          child: TextField(
+                            controller: _textController,
+                            textCapitalization: TextCapitalization.sentences,
+                            minLines: 1,
+                            maxLines: 5,
+                            onChanged: (val) {
+                                setState(() {}); // Actualizar para cambiar icono Mic/Send
+                            },
+                            decoration: const InputDecoration(
+                              hintText: 'Mensaje...',
+                              hintStyle: TextStyle(color: Colors.grey),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 10),
+                            ),
+                          ),
+                        ),
+                        
+                        // Cámara
+                        IconButton(
+                          icon: Icon(Icons.camera_alt_outlined, color: Colors.grey.shade600),
+                          onPressed: (_isUploading || _isRecording) ? null : () => _seleccionarYEnviarImagen(ImageSource.camera),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                
+                // BOTÓN DINÁMICO (ENVIAR O GRABAR)
+                GestureDetector(
+                  onTap: () {
+                     if (_textController.text.trim().isNotEmpty) {
+                        _sendMessage(); // Enviar texto
+                     } else {
+                        // Lógica de grabación (Toque simple: Iniciar / Detener)
+                        if (_isRecording) {
+                          _stopAndSendRecording();
+                        } else {
+                          _startRecording();
+                        }
+                     }
+                  },
+                  child: CircleAvatar(
+                    radius: 24,
+                    backgroundColor: _isRecording ? Colors.red : verdeBandera,
+                    child: _isUploading 
+                      ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                      : Icon(
+                          _textController.text.trim().isNotEmpty ? Icons.send_rounded : (_isRecording ? Icons.stop : Icons.mic), 
+                          color: Colors.white, 
+                          size: 22
+                        ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -501,17 +627,18 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     if (text.isEmpty) return;
     
     _textController.clear();
+    setState(() {}); // Actualizar estado para que vuelva el icono de mic
     
     _chatService.sendMessage(
       otroUid: _extraerOtroUid(widget.chatId),
       texto: text,
       miNombre: widget.nombre,
       miRol: widget.rol,
-      type: 'text', // Mensaje normal
+      type: 'text',
     );
   }
 
-  // 🔹 PANEL LATERAL (Lógica Original Mantenida)
+  // 🔹 PANEL LATERAL (DRAWER)
   Widget _buildIncidenciasDrawer() {
     final miUid = FirebaseAuth.instance.currentUser!.uid;
     final otroUid = _extraerOtroUid(widget.chatId);
@@ -652,8 +779,12 @@ class _DirectChatScreenState extends State<DirectChatScreen> {
     }
   }
 }
-// 👇 Copia esto al final de tu archivo direct_chat_screen.dart
 
+// ----------------------------------------------------------------------
+// 📦 WIDGETS EXTERNOS (PhotoView & AudioPlayer)
+// ----------------------------------------------------------------------
+
+// 1. Pantalla Completa de Foto
 class PhotoViewScreen extends StatelessWidget {
   final String imageUrl;
 
@@ -662,31 +793,139 @@ class PhotoViewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Fondo negro estilo galería
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black, // Barra negra
-        iconTheme: const IconThemeData(color: Colors.white), // Flecha blanca
-        actions: [
-            // Opcional: Botón para guardar o compartir en el futuro
-            // IconButton(icon: Icon(Icons.share), onPressed: () {}) 
-        ],
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Center(
-        // 🔍 InteractiveViewer permite hacer Zoom y Pan (Moverse)
         child: InteractiveViewer(
-          panEnabled: true, // Permitir moverse por la foto
+          panEnabled: true,
           boundaryMargin: const EdgeInsets.all(20),
-          minScale: 0.5, // Zoom mínimo
-          maxScale: 4.0, // Zoom máximo (4x)
+          minScale: 0.5,
+          maxScale: 4.0,
           child: Image.network(
             imageUrl,
-            fit: BoxFit.contain, // La imagen se ajusta sin recortarse
+            fit: BoxFit.contain,
             loadingBuilder: (ctx, child, progress) {
               if (progress == null) return child;
               return const CircularProgressIndicator(color: Colors.white);
             },
           ),
         ),
+      ),
+    );
+  }
+}
+
+// 2. Burbuja de Audio Reproductor
+class AudioMessageBubble extends StatefulWidget {
+  final String audioUrl;
+  final bool isMe;
+
+  const AudioMessageBubble({super.key, required this.audioUrl, required this.isMe});
+
+  @override
+  State<AudioMessageBubble> createState() => _AudioMessageBubbleState();
+}
+
+class _AudioMessageBubbleState extends State<AudioMessageBubble> {
+  final AudioPlayer _player = AudioPlayer();
+  bool _isPlaying = false;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _player.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() {
+          _isPlaying = state == PlayerState.playing;
+        });
+      }
+    });
+
+    _player.onDurationChanged.listen((newDuration) {
+      if (mounted) setState(() => _duration = newDuration);
+    });
+
+    _player.onPositionChanged.listen((newPosition) {
+      if (mounted) setState(() => _position = newPosition);
+    });
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    final min = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final sec = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return "$min:$sec";
+  }
+
+  Future<void> _togglePlay() async {
+    if (_isPlaying) {
+      await _player.pause();
+    } else {
+      await _player.play(UrlSource(widget.audioUrl));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(8),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill),
+            iconSize: 35,
+            color: widget.isMe ? Colors.green[800] : Colors.grey[700],
+            onPressed: _togglePlay,
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    trackHeight: 2,
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                  ),
+                  child: Slider(
+                    min: 0,
+                    max: _duration.inSeconds.toDouble() > 0 ? _duration.inSeconds.toDouble() : 1.0,
+                    value: _position.inSeconds.toDouble().clamp(0, _duration.inSeconds.toDouble()),
+                    activeColor: widget.isMe ? Colors.green[800] : Colors.blue,
+                    inactiveColor: Colors.grey[300],
+                    onChanged: (value) async {
+                      final position = Duration(seconds: value.toInt());
+                      await _player.seek(position);
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_formatDuration(_position), style: const TextStyle(fontSize: 10)),
+                      Text(_formatDuration(_duration), style: const TextStyle(fontSize: 10)),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

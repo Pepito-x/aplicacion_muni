@@ -59,14 +59,14 @@ class DirectChatService {
             .toList());
   }
 
-  // 🔹 Envía un mensaje (SOPORTA TEXTO E IMÁGENES)
+  // 🔹 Envía un mensaje (SOPORTA TEXTO, IMÁGENES Y AUDIO)
   Future<void> sendMessage({
     required String otroUid,
     required String texto,
     required String miNombre,
     required String miRol,
-    String? imageUrl,     // 👈 NUEVO: Recibe URL de imagen
-    String type = 'text', // 👈 NUEVO: Define tipo ('text' o 'image')
+    String? imageUrl,     // URL de Cloudinary (Imagen o Audio)
+    String type = 'text', // 'text', 'image' o 'audio'
   }) async {
     final chatId = generarChatId(otroUid);
     final timestamp = Timestamp.now();
@@ -91,8 +91,8 @@ class DirectChatService {
       rol: miRol,
       texto: texto,
       timestamp: timestamp,
-      imageUrl: imageUrl, // 👈 Guardamos la URL
-      type: type,         // 👈 Guardamos el tipo
+      imageUrl: imageUrl, // Guardamos la URL
+      type: type,         // Guardamos el tipo
     );
 
     final batch = _firestore.batch();
@@ -103,10 +103,13 @@ class DirectChatService {
       mensaje.toFirestore(),
     );
 
-    // 3. Definir qué texto se muestra en la lista de chats
+    // 3. Definir qué texto se muestra en la lista de chats (PREVIEW)
     String textoPreview = texto;
+
     if (type == 'image') {
-      textoPreview = texto.isNotEmpty ? '📷 $texto' : '📷 Foto enviada';
+      textoPreview = '📷 Foto enviada';
+    } else if (type == 'audio') {
+      textoPreview = '🎤 Nota de voz'; // 👈 Esto asegura que se vea bien en la lista
     }
 
     // 4. Actualizar el documento principal del chat
@@ -126,7 +129,7 @@ class DirectChatService {
         'timestamp': timestamp,
       },
       'ultimoTimestamp': timestamp,
-      'noLeidos': FieldValue.arrayUnion([otroUid]), // 👈 Añadimos al otro a "no leídos"
+      'noLeidos': FieldValue.arrayUnion([otroUid]), // Añadimos al otro a "no leídos"
     };
 
     // Usamos merge para crear o actualizar
